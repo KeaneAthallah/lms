@@ -40,8 +40,8 @@ export default function Register() {
     };
 
     return (
-        <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-brand-700 via-brand-800 to-slate-900 px-4 py-10">
-            <Link to="/" className="mb-6 flex items-center gap-2.5 text-white">
+        <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-brand-700 via-brand-800 to-gray-900 px-4 py-10">
+            <Link to="/" className="mb-6 flex items-center gap-2.5 text-white dark:text-gray-50">
                 <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/10 ring-1 ring-white/20">
                     <Icon name="book" className="h-4.5 w-4.5" />
                 </span>

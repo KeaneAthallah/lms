@@ -45,7 +45,7 @@ function CurriculumPanel({ course, sections, lesson, activeId, slug }) {
                                                 className={cx(
                                                     'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border',
                                                     done
-                                                        ? 'border-emerald-500 bg-emerald-500 text-white'
+                                                        ? 'border-emerald-500 bg-emerald-500 text-white dark:text-gray-50'
                                                         : 'border-slate-300 text-slate-400',
                                                 )}
                                             >
@@ -222,7 +222,7 @@ function LessonView({ lesson, slug, allLessons, toast, onProgress }) {
     return (
         <div className="animate-slide-in space-y-6">
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-card">
-                <div className="border-b border-slate-200 bg-slate-900 px-5 py-4 text-white">
+                <div className="border-b border-slate-200 bg-slate-900 px-5 py-4 text-white dark:bg-gray-900 dark:text-gray-50">
                     <p className="text-xs font-medium uppercase tracking-wide text-brand-300">
                         Lesson {lesson.navigation.current_index} of {lesson.navigation.total}
                     </p>
@@ -231,7 +231,7 @@ function LessonView({ lesson, slug, allLessons, toast, onProgress }) {
 
                 <div className="p-5">
                     {l.type === 'video' ? (
-                        <div className="overflow-hidden rounded-lg bg-slate-900">
+                        <div className="overflow-hidden rounded-lg bg-slate-900 dark:bg-gray-900">
                             {videoSrc ? (
                                 <video
                                     ref={videoRef}

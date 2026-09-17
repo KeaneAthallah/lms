@@ -86,7 +86,7 @@ export default function StudentDashboard() {
                                     {course.thumbnail_url ? (
                                         <img src={course.thumbnail_url} alt="" className="h-full w-full object-cover" />
                                     ) : (
-                                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-brand-500 to-brand-700 text-white">
+                                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-brand-500 to-brand-700 text-white dark:text-gray-50">
                                             <Icon name="book" className="h-5 w-5" />
                                         </div>
                                     )}

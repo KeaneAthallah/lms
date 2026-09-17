@@ -63,7 +63,7 @@ export default function Certificates() {
                                             href={cert.verify_url}
                                             target="_blank"
                                             rel="noreferrer"
-                                            className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700"
+                                            className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 dark:text-gray-50"
                                         >
                                             <Icon name="checkCircle" className="h-4 w-4" />
                                             Verify

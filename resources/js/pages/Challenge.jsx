@@ -37,7 +37,7 @@ function ChallengeQuiz({ challenge, onReset }) {
                     {result.questions.map((q) => (
                         <li key={q.id} className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:gap-4">
                             <span
-                                className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${
+                                className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white dark:text-gray-50 ${
                                     q.is_correct ? 'bg-emerald-500' : 'bg-red-500'
                                 }`}
                             >
@@ -111,7 +111,7 @@ function ChallengeQuiz({ challenge, onReset }) {
                                     >
                                         <span
                                             className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
-                                                active ? 'border-violet-500 bg-violet-500 text-white' : 'border-slate-300'
+                                                active ? 'border-violet-500 bg-violet-500 text-white dark:text-gray-50' : 'border-slate-300'
                                             }`}
                                         >
                                             {active ? <Icon name="check" className="h-3 w-3" /> : null}

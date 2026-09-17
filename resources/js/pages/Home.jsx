@@ -550,7 +550,7 @@ export default function Home() {
                                 <Icon name="badgeCheck" className="h-4 w-4" aria-hidden="true" />
                                 Layanan Publik
                             </p>
-                            <h2 className="mt-3 text-2xl font-bold tracking-tight text-white sm:text-3xl">
+                            <h2 className="mt-3 text-2xl font-bold tracking-tight text-white sm:text-3xl dark:text-gray-50">
                                 Verifikasi Sertifikat
                             </h2>
                             <p className="mt-3 max-w-2xl leading-relaxed text-brand-100">
@@ -559,7 +559,7 @@ export default function Home() {
                             <div className="mt-6">
                                 <Link
                                     to="/verify-certificate"
-                                    className="inline-flex items-center justify-center gap-2 rounded-md bg-white px-5 py-2.5 text-sm font-semibold text-brand-800 shadow-sm ring-1 ring-inset ring-white/40 transition hover:bg-brand-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                                    className="inline-flex items-center justify-center gap-2 rounded-md bg-white px-5 py-2.5 text-sm font-semibold text-brand-800 shadow-sm ring-1 ring-inset ring-white/40 transition hover:bg-brand-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white dark:bg-gray-100 dark:text-brand-800 dark:hover:bg-brand-50"
                                 >
                                     <Icon name="badgeCheck" className="h-4 w-4" />
                                     Verifikasi Sertifikat
@@ -570,7 +570,7 @@ export default function Home() {
                             {certificateFacts.map((item) => (
                                 <li key={item} className="flex items-start gap-2.5 text-sm text-brand-100">
                                     <Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-brand-300" strokeWidth={2.5} />
-                                    <span className="text-white/90">{item}</span>
+                                    <span className="text-white/90 dark:text-gray-50/90">{item}</span>
                                 </li>
                             ))}
                         </ul>

@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './auth';
+import { ThemeProvider } from './theme';
 import { ToastProvider } from './components/ui';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
@@ -42,8 +43,9 @@ const inLayout = (element) => <Layout>{element}</Layout>;
 
 createRoot(document.getElementById('app')).render(
     <ToastProvider>
-        <AuthProvider>
-            <BrowserRouter>
+        <ThemeProvider>
+            <AuthProvider>
+                <BrowserRouter>
                 <Routes>
                     <Route path="/" element={inLayout(<Home />)} />
                     <Route path="/browse" element={inLayout(<Browse />)} />
@@ -153,5 +155,6 @@ createRoot(document.getElementById('app')).render(
                 </Routes>
             </BrowserRouter>
         </AuthProvider>
-    </ToastProvider>,
+    </ThemeProvider>
+</ToastProvider>,
 );

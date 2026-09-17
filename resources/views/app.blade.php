@@ -7,6 +7,18 @@
     <link rel="icon" href="/favicon.ico" sizes="32x32">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{{ config('lms.institution_name', 'LMS') }}</title>
+    <script>
+        (function () {
+            try {
+                var preference = localStorage.getItem('lms.theme');
+                var dark = preference === 'dark' || (preference !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                document.documentElement.classList.toggle('dark', dark);
+                document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+            } catch (e) {
+                /* storage unavailable — light theme (no .dark) is the fallback */
+            }
+        })();
+    </script>
     @viteReactRefresh
     @vite(['resources/css/app.css', 'resources/js/app.jsx'])
 </head>

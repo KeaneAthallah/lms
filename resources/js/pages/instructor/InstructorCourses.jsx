@@ -94,7 +94,7 @@ export default function InstructorCourses() {
                                     {course.thumbnail_url ? (
                                         <img src={course.thumbnail_url} alt={course.title} className="h-full w-full object-cover" loading="lazy" />
                                     ) : (
-                                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-brand-600 to-brand-900 text-white">
+                                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-brand-600 to-brand-900 text-white dark:text-gray-50">
                                             <Icon name="book" className="h-8 w-8" />
                                         </div>
                                     )}

@@ -340,7 +340,7 @@ export function PanelLink({ icon, title, description, to, href, cta }) {
 
 export function CTAButton({ to, children, icon }) {
     return (
-        <Link to={to} className="inline-flex items-center justify-center gap-2 rounded-md bg-brand-600 px-6 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-brand-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600">
+        <Link to={to} className="inline-flex items-center justify-center gap-2 rounded-md bg-brand-600 px-6 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-brand-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 dark:text-gray-50">
             {icon ? <Icon name={icon} className="h-4 w-4" /> : null}
             {children}
         </Link>

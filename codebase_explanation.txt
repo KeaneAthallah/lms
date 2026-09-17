@@ -277,7 +277,7 @@ Admin (all /api/admin/*):
 8. FRONTEND ARCHITECTURE
 --------------------------------------------------------------------------------
 - entry: resources/js/app.jsx — React 19 + BrowserRouter + AuthProvider +
-  ToastProvider; every page is wrapped by Layout.jsx; ProtectedRoute.jsx enforces
+  ToastProvider + ThemeProvider; every page is wrapped by Layout.jsx; ProtectedRoute.jsx enforces
   auth/role (redirects to /login or /). Routes: /, /browse, /courses/:slug,
   /verify-certificate (SPA search form → window.location.assign to the public
   Blade verify route), /login, /register, /my-courses, /dashboard,
@@ -316,6 +316,21 @@ Admin (all /api/admin/*):
   Escape, scroll-lock); hash links (/#kategori, /#tentang, /#alur, /#faq)
   scroll to anchored sections (scroll-mt-24). (b) authed sidebar layout (256px)
   with role-grouped nav + mobile drawer.
+- Theming (dark/light): resources/js/theme.jsx exports ThemeProvider + useTheme.
+  Preference ∈ system|light|dark stored in localStorage key "lms.theme" (default
+  system); prefers-color-scheme is listened to at runtime, the resolved theme
+  toggles the `.dark` class + color-scheme on <html>. Toggle UI is a ThemeToggle
+  popover in Layout.jsx (authed topbar, guest header, guest mobile drawer).
+  A tiny inline script in resources/views/app.blade.php applies the saved/system
+  theme before first paint (no FOUC). Tailwind v4 class-based dark mode is on via
+  @custom-variant dark in resources/css/app.css, and the whole slate/white
+  palette is remapped under `.dark` (white → #1a2133 cards, slate-50 → #0f172a
+  canvas, slate text flips light) so the fixed-palette app darkens without per-file
+  edits. Components add targeted `dark:` classes only where a surface must stay
+  intentionally dark (brand-900/slate-900 navy panels, video player, modal/drawer
+  overlays → bg-gray-900) or text must stay light on vivid fills
+  (dark:text-gray-50/gray-100); brand/emerald/violet/red/amber/gray palettes are
+  NOT remapped.
 - Design language: formal public-service portal. Whitespace, hairline borders
   (slate-200), registry rows, divided lists, and one restrained brand-900 navy
   panel for the public Verifikasi Sertifikat service. No fabricated statistics,

@@ -1,5 +1,7 @@
 @import 'tailwindcss';
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
     --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 
@@ -17,6 +19,46 @@
     --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06);
     --shadow-popover: 0 12px 32px -8px rgb(15 23 42 / 0.18);
     --shadow-lift: 0 20px 48px -16px rgb(15 23 42 / 0.24);
+}
+
+/*
+ * Dark theme palette remap.
+ *
+ * The whole app is built on the fixed Tailwind palette (bg-white cards,
+ * slate text/borders). Tailwind v4 compiles every color utility to css
+ * custom properties (var(--color-*)), so re-declaring those variables under
+ * `.dark` converts the entire app to a dark theme without touching every
+ * file. Semantic intent is preserved:
+ *   - surfaces (white) become the dark card color
+ *   - slate 50/100/200 remain the lightest surfaces (page canvas, chips,
+ *     borders), so `bg-slate-50` page / `bg-white` card contrast is kept
+ *   - slate text shades flip to light so headings/body/muted stay legible
+ * Only where a surface must stay intentionally dark (navy panels, video
+ * players) or white (text on vivid buttons) is an explicit `dark:` class
+ * added in the components.
+ */
+@layer base {
+    .dark {
+        color-scheme: dark;
+
+        --color-white: #1a2133;
+
+        --color-slate-50: #0f172a;
+        --color-slate-100: #141d33;
+        --color-slate-200: #22304b;
+        --color-slate-300: #3a4c6b;
+        --color-slate-400: #64748b;
+        --color-slate-500: #8b99ad;
+        --color-slate-600: #a9b7c9;
+        --color-slate-700: #cbd5e1;
+        --color-slate-800: #e2e8f0;
+        --color-slate-900: #f1f5f9;
+        --color-slate-950: #f8fafc;
+
+        --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.5), 0 1px 3px 0 rgb(0 0 0 / 0.55);
+        --shadow-popover: 0 12px 32px -8px rgb(0 0 0 / 0.6);
+        --shadow-lift: 0 20px 48px -16px rgb(0 0 0 / 0.65);
+    }
 }
 
 @layer base {

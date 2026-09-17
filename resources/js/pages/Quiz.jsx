@@ -350,13 +350,13 @@ function QuizResult({ result, quizTitle, quizId, onClose, summary }) {
             <div
                 className={cx(
                     'overflow-hidden rounded-xl border shadow-sm',
-                    passed ? 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-white' : 'border-red-200 bg-gradient-to-br from-red-50 to-white',
+                    passed ? 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-white dark:border-emerald-900/60 dark:from-emerald-950 dark:to-gray-900' : 'border-red-200 bg-gradient-to-br from-red-50 to-white dark:border-red-900/60 dark:from-red-950 dark:to-gray-900',
                 )}
             >
                 <div className="p-8 text-center">
                     <span
                         className={cx(
-                            'mx-auto flex h-16 w-16 items-center justify-center rounded-full text-white',
+                            'mx-auto flex h-16 w-16 items-center justify-center rounded-full text-white dark:text-gray-50',
                             passed ? 'bg-emerald-500' : 'bg-red-500',
                         )}
                     >

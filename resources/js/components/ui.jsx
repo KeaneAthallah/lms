@@ -75,12 +75,11 @@ export function useToast() {
 /* --------------------------------- Buttons --------------------------------- */
 
 const buttonVariants = {
-    primary: 'bg-brand-600 text-white hover:bg-brand-700 focus-visible:outline-brand-600 shadow-sm',
-    secondary: 'bg-white text-slate-700 ring-1 ring-slate-300 hover:bg-slate-50',
-    danger: 'bg-red-600 text-white hover:bg-red-700 shadow-sm',
-    ghost: 'text-slate-600 hover:bg-slate-100',
-    success: 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm',
-    dark: 'bg-slate-900 text-white hover:bg-slate-800 shadow-sm',
+primary: 'bg-brand-600 text-white hover:bg-brand-700 focus-visible:outline-brand-600 shadow-sm dark:text-gray-50',
+    secondary: 'bg-white text-slate-700 ring-1 ring-inset ring-slate-300 shadow-sm hover:bg-slate-50',
+    danger: 'bg-red-600 text-white hover:bg-red-700 shadow-sm dark:text-gray-50',
+    success: 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm dark:text-gray-50',
+    dark: 'bg-slate-900 text-white hover:bg-slate-800 shadow-sm dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-200',
 };
 
 const buttonSizes = {
@@ -257,7 +256,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }) {
 
     return createPortal(
         <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true">
-            <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose} />
+            <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" onClick={onClose} />
             <div className={cx('relative w-full rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl', widths[size], 'max-h-[92vh] overflow-y-auto')}>
                 <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
                     <h3 className="text-base font-semibold text-slate-900">{title}</h3>
@@ -358,7 +357,7 @@ export function Paginator({ meta, onPage, className }) {
                         onClick={() => onPage(p)}
                         className={cx(
                             'min-w-8 rounded-md px-2 py-1.5 text-sm font-medium',
-                            p === meta.current_page ? 'bg-brand-600 text-white' : 'text-slate-600 hover:bg-slate-100',
+                            p === meta.current_page ? 'bg-brand-600 text-white dark:text-gray-50' : 'text-slate-600 hover:bg-slate-100',
                         )}
                     >
                         {p}
@@ -394,7 +393,7 @@ export function Avatar({ src, name, size = 'h-8 w-8', className }) {
     return (
         <span
             className={cx(
-                'inline-flex shrink-0 select-none items-center justify-center rounded-full bg-brand-600 font-semibold text-white',
+                'inline-flex shrink-0 select-none items-center justify-center rounded-full bg-brand-600 font-semibold text-white dark:text-gray-50',
                 size,
                 className,
             )}

@@ -127,7 +127,7 @@ export default function CourseDetail() {
 
     return (
         <div className="space-y-8">
-            <section className="relative overflow-hidden rounded-3xl bg-slate-900 text-white">
+            <section className="relative overflow-hidden rounded-3xl bg-slate-900 text-white dark:bg-gray-900 dark:text-gray-50">
                 <div className="absolute inset-0 bg-grid opacity-20" />
                 <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-brand-500/30 blur-3xl" />
                 <div className="relative grid gap-0 lg:grid-cols-2">
@@ -196,7 +196,7 @@ export default function CourseDetail() {
                                     Enroll now
                                 </Button>
                             ) : user ? (
-                                <p className="mt-4 rounded-lg bg-white/10 px-3 py-2 text-center text-xs font-medium text-white/80 ring-1 ring-white/20">
+                                <p className="mt-4 rounded-lg bg-white/10 px-3 py-2 text-center text-xs font-medium text-white/80 ring-1 ring-white/20 dark:text-gray-50/80">
                                     Preview available — sign in as a student to enroll.
                                 </p>
                             ) : (
