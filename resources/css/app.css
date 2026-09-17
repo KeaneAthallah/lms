@@ -166,3 +166,12 @@
 @utility text-label {
     @apply text-xs font-semibold uppercase tracking-wider text-slate-500;
 }
+
+@utility text-eyebrow {
+    @apply text-xs font-bold uppercase tracking-[0.18em] text-brand-700;
+}
+
+/* Institutional hairline used above numbered service registries */
+@utility registry-rule {
+    @apply border-t border-slate-200;
+}

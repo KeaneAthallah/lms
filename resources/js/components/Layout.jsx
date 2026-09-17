@@ -5,15 +5,20 @@ import { useAuth } from '../auth';
 import { Avatar, Badge, cx, Icon } from './ui';
 import FooterSection from './FooterSection';
 
-function Brand({ className }) {
+function Brand({ className, subtitle }) {
     return (
         <Link to="/" className={cx('group flex items-center gap-2.5', className)}>
-            <span className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-brand-200 bg-white text-brand-700 shadow-sm transition group-hover:border-brand-300">
-                <Icon name="book" className="h-4.5 w-4.5" strokeWidth={2} />
+            <span className="relative flex h-10 w-10 items-center justify-center rounded-md border border-brand-200 bg-white text-brand-700 shadow-sm transition group-hover:border-brand-300">
+                <Icon name="book" className="h-5 w-5" strokeWidth={2} />
                 <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-white bg-brand-600" aria-hidden="true" />
             </span>
-            <span className="text-base font-bold tracking-tight text-slate-900">
-                {window.__LMS_CONFIG__?.institutionName ?? 'LMS'}
+            <span className="flex min-w-0 flex-col leading-tight">
+                <span className="truncate text-base font-bold tracking-tight text-slate-900">
+                    {window.__LMS_CONFIG__?.institutionName ?? 'LMS'}
+                </span>
+                {subtitle ? (
+                    <span className="truncate text-[10px] font-semibold uppercase tracking-wider text-slate-500">{subtitle}</span>
+                ) : null}
             </span>
         </Link>
     );
@@ -341,15 +346,13 @@ function GuestNav() {
 
     return (
         <div>
-            <div className="bg-brand-900 text-brand-50">
+            <div className="border-b border-brand-800 bg-brand-900">
                 <div className="mx-auto flex h-9 max-w-7xl items-center justify-between gap-3 px-4 sm:px-6">
-                    <p className="flex items-center gap-1.5 truncate text-xs font-medium tracking-wide">
+                    <p className="flex items-center gap-1.5 truncate text-xs font-medium tracking-wide text-brand-100">
                         <Icon name="building" className="h-3.5 w-3.5 shrink-0 text-brand-300" />
-                        <span className="truncate">
-                            {name} · Platform Pembelajaran Digital
-                        </span>
+                        <span className="truncate">{name} · Platform Pembelajaran Digital</span>
                     </p>
-                    <nav className="flex shrink-0 items-center gap-4 text-xs font-medium" aria-label="Layanan">
+                    <nav className="flex shrink-0 items-center gap-4 text-xs font-medium text-brand-100" aria-label="Layanan">
                         <Link to="/verify-certificate" className="flex items-center gap-1.5 transition hover:text-white">
                             <Icon name="badgeCheck" className="h-3.5 w-3.5" />
                             Verifikasi Sertifikat
@@ -364,15 +367,15 @@ function GuestNav() {
             </div>
 
             <header className="sticky top-0 z-40 border-b border-slate-200 bg-white">
-                <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4 sm:px-6">
-                    <Brand />
-                    <nav className="hidden items-center gap-1 md:flex" aria-label="Utama">
+                <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
+                    <Brand subtitle="Platform Pembelajaran Digital" />
+                    <nav className="hidden items-center gap-0.5 lg:flex" aria-label="Utama">
                         {guestNavItems.map((item) =>
                             String(item.to).includes('#') ? (
                                 <Link
                                     key={item.label}
                                     to={item.to}
-                                    className="rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-brand-50 hover:text-brand-700"
+                                    className="rounded-md px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-brand-50 hover:text-brand-700"
                                 >
                                     {item.label}
                                 </Link>
@@ -383,8 +386,8 @@ function GuestNav() {
                                     end
                                     className={({ isActive }) =>
                                         cx(
-                                            'rounded-lg px-3 py-2 text-sm font-medium transition',
-                                            isActive ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-brand-50 hover:text-brand-700',
+                                            'rounded-md px-3 py-2 text-sm font-medium transition',
+                                            isActive ? 'bg-brand-50 text-brand-700' : 'text-slate-700 hover:bg-brand-50 hover:text-brand-700',
                                         )
                                     }
                                 >
@@ -395,15 +398,21 @@ function GuestNav() {
                     </nav>
                     <div className="flex items-center gap-2">
                         <Link
+                            to="/login"
+                            className="hidden rounded-md px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 md:block"
+                        >
+                            Masuk
+                        </Link>
+                        <Link
                             to="/register"
-                            className="hidden rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-brand-600/30 transition hover:bg-brand-700 sm:block"
+                            className="hidden rounded-md bg-brand-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-700 sm:block"
                         >
                             Daftar
                         </Link>
                         <button
                             type="button"
                             onClick={() => setOpen((v) => !v)}
-                            className="rounded-lg p-2 text-slate-500 transition hover:bg-brand-50 hover:text-slate-800 md:hidden"
+                            className="rounded-md p-2 text-slate-500 transition hover:bg-brand-50 hover:text-slate-800 lg:hidden"
                             aria-label="Buka menu"
                             aria-expanded={open}
                         >
@@ -414,7 +423,7 @@ function GuestNav() {
             </header>
 
             {open ? (
-                <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Menu utama">
+                <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menu utama">
                     <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setOpen(false)} />
                     <aside className="absolute inset-y-0 right-0 flex w-72 max-w-[85vw] flex-col bg-white shadow-lift">
                         <div className="flex h-16 items-center justify-between border-b border-slate-200 px-5">
@@ -423,7 +432,7 @@ function GuestNav() {
                                 type="button"
                                 ref={drawerCloseRef}
                                 onClick={() => setOpen(false)}
-                                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                                className="rounded-md p-2 text-slate-500 hover:bg-slate-100"
                                 aria-label="Tutup menu"
                             >
                                 <Icon name="x" className="h-5 w-5" />
@@ -438,14 +447,14 @@ function GuestNav() {
                             <Link
                                 to="/login"
                                 onClick={() => setOpen(false)}
-                                className="rounded-lg px-4 py-2.5 text-center text-sm font-semibold text-slate-700 ring-1 ring-inset ring-slate-300 transition hover:bg-slate-50"
+                                className="rounded-md px-4 py-2.5 text-center text-sm font-semibold text-slate-700 ring-1 ring-inset ring-slate-300 transition hover:bg-slate-50"
                             >
                                 Masuk
                             </Link>
                             <Link
                                 to="/register"
                                 onClick={() => setOpen(false)}
-                                className="rounded-lg bg-brand-600 px-4 py-2.5 text-center text-sm font-semibold text-white transition hover:bg-brand-700"
+                                className="rounded-md bg-brand-600 px-4 py-2.5 text-center text-sm font-semibold text-white transition hover:bg-brand-700"
                             >
                                 Daftar
                             </Link>

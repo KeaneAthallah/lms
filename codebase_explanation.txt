@@ -210,20 +210,35 @@ Admin (all /api/admin/*):
 - icons.jsx: ~76 feather-style inline SVG icons keyed in `paths` (unknown names
   silently fall back to `paths.info` — always verify names) + categoryIcon()
   slug map. landing.jsx: public-portal components (SectionHeading, IntroStrip,
-  ServicesGrid, BenefitStrip, CategoryDirectory, ProcessSteps, ResourceList,
+  ServicesGrid, CategoryDirectory, ProcessSteps, ResourceList, FlowList,
   RolePanel, NoticeList, FAQItem, PanelLink, CTAButton) — imported ONLY by
-  pages/Home.jsx. CourseCard.jsx is the shared catalog entry (used by Home,
+  pages/Home.jsx. No BenefitStrip/service-cell card layouts: because it is a
+  formal public-service portal, sections use registries, divided rows, panels,
+  timelines, and lists instead of uniform cards. CourseCard.jsx is the shared
+  catalog entry (used by Home,
   Browse, MyCourses, AdminCourses); FooterSection.jsx is the official
-  institutional footer (Indonesian TAUTAN/AKUN columns; © Lumen Academy).
+  institutional footer (PLATFORM + Indonesian TAUTAN/AKUN/INFORMASI columns —
+  only real in-app links; © institution name).
 - Layout.jsx has two modes: (a) public GuestNav — navy utility bar (institution
-  + Verifikasi Sertifikat/Masuk) + sticky white main header (Beranda /
-  Pembelajaran / Kategori / Tentang / Verifikasi Sertifikat), with a mobile
-  drawer (focus, Escape, scroll-lock); hash links (/#kategori, /#tentang) scroll
-  to anchored sections (scroll-mt-24). (b) authed sidebar layout (256px) with
-  role-grouped nav + mobile drawer.
+  + Verifikasi Sertifikat/Masuk) + sticky white main header with a configurable
+  brand subtitle ("Platform Pembelajaran Digital") under the institution name
+  and nav Beranda / Pembelajaran / Kategori / Tentang / Verifikasi Sertifikat
+  (visible from lg; Masuk/Daftar shown at md/sm) and a mobile drawer (focus,
+  Escape, scroll-lock); hash links (/#kategori, /#tentang, /#alur, /#faq)
+  scroll to anchored sections (scroll-mt-24). (b) authed sidebar layout (256px)
+  with role-grouped nav + mobile drawer.
+- Design language: formal public-service portal. Whitespace, hairline borders
+  (slate-200), registry rows, divided lists, and one restrained brand-900 navy
+  panel for the public Verifikasi Sertifikat service. No fabricated statistics,
+  gradients-splashes, floating cards, or price/payment UI anywhere in the
+  public surface; numbers (course total, category counts, enrollments) come only
+  from real API payloads.
 - Pages by role (resources/js/pages/):
-  Shared: Home (institutional Indonesian portal; role-aware hero CTAs; loads
-  /api/courses?sort=popular + /api/courses/categories via useFeatured), Browse,
+  Shared: Home (institutional Indonesian portal; role-aware hero CTAs; section
+  order: hero, tentang, layanan, pembelajaran, kategori, alur, jenis materi,
+  evaluasi, verifikasi sertifikat (navy public-service panel), peran, informasi,
+  faq, closing CTA; loads /api/courses?sort=popular +
+  /api/courses/categories via useFeatured), Browse,
   CourseDetail, MyCourses, StudentDashboard, Learn, Quiz, Assignment, Grades,
   Certificates, Notifications, Profile, VerifyCertificate, Login, Register.
   instructor/: InstructorDashboard, InstructorCourses, InstructorCourseBuilder,
