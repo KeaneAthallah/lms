@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import api, { apiError } from '../../api';
-import { Badge, Breadcrumbs, Button, ConfirmDialog, EmptyState, Field, Icon, Input, Modal, PageHeader, PageLoader, Section, Select, StatusBadge, Textarea, useToast } from '../../components/ui';
+import { Badge, Breadcrumbs, Button, ButtonLink, ConfirmDialog, EmptyState, Field, Icon, Input, Modal, PageHeader, PageLoader, Section, Select, StatusBadge, Textarea, useToast } from '../../components/ui';
 
 const lessonMeta = {
     text: { label: 'Text lesson', icon: 'doc' },
@@ -148,6 +148,9 @@ export default function InstructorCourseBuilder() {
                                 Unpublish
                             </Button>
                         )}
+                        <ButtonLink to={`/instructor/courses/${course.slug}/radar`} variant="secondary" icon="trendingUp">
+                            Learning radar
+                        </ButtonLink>
                         <Button variant="secondary" icon="eye" onClick={() => window.open(`/courses/${course.slug}`, '_blank')}>
                             Preview
                         </Button>

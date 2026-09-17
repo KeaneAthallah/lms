@@ -1,13 +1,86 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import api, { apiError } from '../api';
-import { Badge, Button, Card, ConfirmDialog, cx, EmptyState, Icon, Input, PageLoader, useToast } from '../components/ui';
+import { Badge, Button, ButtonLink, Card, ConfirmDialog, cx, EmptyState, Icon, Input, PageLoader, useToast } from '../components/ui';
 
 function formatTime(seconds) {
     if (seconds <= 0) return '0:00';
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function DiagnosisBlock({ diagnosis }) {
+    const statusMeta = {
+        strong: { color: 'green', label: 'Strong' },
+        good: { color: 'blue', label: 'Solid' },
+        caution: { color: 'amber', label: 'Caution' },
+        review: { color: 'red', label: 'Needs review' },
+    };
+    const meta = statusMeta[diagnosis.status] ?? { color: 'slate', label: diagnosis.status };
+
+    return (
+        <Card className="p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-600">
+                    <Icon name="compass" className="h-6 w-6" />
+                </div>
+                <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-violet-500">Explain my mistakes</p>
+                    <h2 className="text-lg font-bold text-slate-900">Diagnosis · {diagnosis.concept}</h2>
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <Badge color={meta.color} dot>{meta.label}</Badge>
+                    <Badge color="slate">{diagnosis.accuracy}% accuracy</Badge>
+                    {diagnosis.needs_recovery ? <Badge color="red">Recovery path available</Badge> : null}
+                </div>
+            </div>
+
+            <div className="mt-4 space-y-2 text-sm leading-relaxed text-slate-600">
+                <p>{diagnosis.why}</p>
+                <p className="rounded-lg bg-slate-50 px-3 py-2 font-medium text-slate-700">{diagnosis.summary}</p>
+            </div>
+
+            {diagnosis.misconceptions?.length ? (
+                <div className="mt-5">
+                    <h3 className="mb-2 text-sm font-bold text-slate-900">Misconceptions to fix</h3>
+                    <ul className="space-y-3">
+                        {diagnosis.misconceptions.map((m) => (
+                            <li key={m.question_id} className="rounded-xl border border-slate-200 p-4">
+                                <p className="font-semibold text-slate-900">{m.question_text}</p>
+                                <p className="mt-2 text-sm text-slate-600">
+                                    <span className="font-semibold text-red-600">You chose:</span> {m.submitted_answer_text}
+                                </p>
+                                <p className="mt-0.5 text-sm text-slate-600">
+                                    <span className="font-semibold text-emerald-600">Correct answer:</span> {m.correct_answer_text}
+                                </p>
+                                {m.explanation ? (
+                                    <p className="mt-2 rounded-lg bg-violet-50 px-3 py-2 text-sm text-violet-800">{m.explanation}</p>
+                                ) : null}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            ) : null}
+
+            {diagnosis.recommendations?.length ? (
+                <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
+                    <span className="text-sm font-bold text-slate-900">Recovery path:</span>
+                    {diagnosis.recommendations.map((recommendation) => (
+                        <ButtonLink
+                            key={`${recommendation.type}-${recommendation.to}`}
+                            to={recommendation.to}
+                            size="sm"
+                            variant={recommendation.type === 'review' ? 'secondary' : 'dark'}
+                            icon={recommendation.type === 'review' ? 'refresh' : 'refresh'}
+                        >
+                            {recommendation.label}
+                        </ButtonLink>
+                    ))}
+                </div>
+            ) : null}
+        </Card>
+    );
 }
 
 export default function QuizPage() {
@@ -310,6 +383,8 @@ function QuizResult({ result, quizTitle, quizId, onClose, summary }) {
                     </div>
                 </div>
             </div>
+
+            {result.diagnosis ? <DiagnosisBlock diagnosis={result.diagnosis} /> : null}
 
             <div>
                 <h2 className="mb-3 text-lg font-bold text-slate-900">Question review</h2>

@@ -215,7 +215,14 @@ function buildGroups({ user, isStudent, isInstructor, isAdmin }) {
             label: 'Progress',
             items: user
                 ? [
-                      ...(isStudent ? [{ to: '/learning-insights', label: 'Learning insights', icon: 'target', end: true }] : []),
+                      ...(isStudent
+                          ? [
+                                { to: '/learning-insights', label: 'Learning insights', icon: 'target', end: true },
+                                { to: '/learning-map', label: 'Learning map', icon: 'compass', end: true },
+                                { to: '/portfolio', label: 'My portfolio', icon: 'award', end: true },
+                                { to: '/challenge', label: 'Challenge', icon: 'cpu', end: true },
+                            ]
+                          : []),
                       { to: '/grades', label: 'Grades', icon: 'chart', end: true },
                       { to: '/certificates', label: 'Certificates', icon: 'certificate', end: true },
                       { to: '/notifications', label: 'Notifications', icon: 'bell', end: true },

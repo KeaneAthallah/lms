@@ -13,6 +13,7 @@ class LearningInsightsResource extends JsonResource
             'generated_at' => now()->toIso8601String(),
             'method' => 'deterministic_rules',
             'summary' => $this['summary'],
+            'mastery' => $this['mastery'] ?? ['overall_percent' => 0, 'status' => 'review'],
             'focus' => $this['focus'],
             'reviews' => $this['reviews'],
             'recommendations' => $this['recommendations'],

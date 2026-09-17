@@ -12,6 +12,9 @@ import Register from './pages/Register';
 import MyCourses from './pages/MyCourses';
 import StudentDashboard from './pages/StudentDashboard';
 import LearningInsights from './pages/LearningInsights';
+import LearningMap from './pages/LearningMap';
+import ChallengePage from './pages/Challenge';
+import Portfolio from './pages/Portfolio';
 import Learn from './pages/Learn';
 import QuizPage from './pages/Quiz';
 import AssignmentPage from './pages/Assignment';
@@ -26,6 +29,7 @@ import InstructorCourseBuilder from './pages/instructor/InstructorCourseBuilder'
 import InstructorStudents from './pages/instructor/InstructorStudents';
 import InstructorSubmissions from './pages/instructor/InstructorSubmissions';
 import InstructorAnalytics from './pages/instructor/InstructorAnalytics';
+import InstructorRadar from './pages/instructor/InstructorRadar';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminUsers from './pages/admin/AdminUsers';
 import AdminRoles from './pages/admin/AdminRoles';
@@ -59,6 +63,18 @@ createRoot(document.getElementById('app')).render(
                     <Route
                         path="/learning-insights"
                         element={<ProtectedRoute roles={['student', 'instructor', 'admin']}>{inLayout(<LearningInsights />)}</ProtectedRoute>}
+                    />
+                    <Route
+                        path="/learning-map"
+                        element={<ProtectedRoute roles={['student', 'instructor', 'admin']}>{inLayout(<LearningMap />)}</ProtectedRoute>}
+                    />
+                    <Route
+                        path="/challenge"
+                        element={<ProtectedRoute roles={['student', 'instructor', 'admin']}>{inLayout(<ChallengePage />)}</ProtectedRoute>}
+                    />
+                    <Route
+                        path="/portfolio"
+                        element={<ProtectedRoute roles={['student', 'instructor', 'admin']}>{inLayout(<Portfolio />)}</ProtectedRoute>}
                     />
                     <Route
                         path="/learn/:slug/*"
@@ -107,6 +123,10 @@ createRoot(document.getElementById('app')).render(
                     <Route
                         path="/instructor/courses/:slug/analytics"
                         element={<ProtectedRoute roles={['instructor', 'admin']}>{inLayout(<InstructorAnalytics />)}</ProtectedRoute>}
+                    />
+                    <Route
+                        path="/instructor/courses/:slug/radar"
+                        element={<ProtectedRoute roles={['instructor', 'admin']}>{inLayout(<InstructorRadar />)}</ProtectedRoute>}
                     />
 
                     <Route

@@ -15,6 +15,71 @@ const lessonIcon = {
     external_link: 'link',
 };
 
+const roadmapStateMeta = {
+    completed: { color: 'green', label: 'Completed', icon: 'checkCircle' },
+    in_progress: { color: 'blue', label: 'In progress', icon: 'play' },
+    not_started: { color: 'slate', label: 'Not started', icon: 'clock' },
+};
+
+function RoadmapStrip() {
+    const { slug } = useParams();
+    const { user } = useAuth();
+    const [roadmap, setRoadmap] = useState(null);
+
+    useEffect(() => {
+        if (!user) return;
+        let active = true;
+        api.get(`/api/courses/${slug}/roadmap`)
+            .then(({ data }) => {
+                if (active) setRoadmap(data.data);
+            })
+            .catch(() => {});
+        return () => {
+            active = false;
+        };
+    }, [slug, user]);
+
+    if (!roadmap || roadmap.state === 'none' || !roadmap.prerequisites?.length) return null;
+
+    return (
+        <section className="rounded-2xl border border-brand-200 bg-brand-50/50 p-5">
+            <div className="flex flex-wrap items-center gap-2">
+                <Icon name="compass" className="h-5 w-5 text-brand-600" />
+                <h2 className="font-bold text-slate-900">Recommended preparation</h2>
+                <span className="text-xs text-slate-500">Informational — you can still enroll directly.</span>
+            </div>
+            <ul className="mt-4 space-y-3">
+                {roadmap.prerequisites.map((entry) => {
+                    const meta = roadmapStateMeta[entry.state] ?? { color: 'slate', label: entry.state, icon: 'info' };
+
+                    return (
+                        <li key={entry.course.id} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+                                <Icon name={meta.icon} className="h-4.5 w-4.5" />
+                            </span>
+                            <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <h3 className="font-semibold text-slate-900">{entry.course.title}</h3>
+                                    <Badge color={meta.color} dot>{meta.label}</Badge>
+                                </div>
+                                <div className="mt-2 flex items-center gap-2">
+                                    <ProgressBar value={entry.progress_percent} color="bg-brand-600" className="max-w-40" />
+                                    <span className="text-xs font-semibold text-slate-500">{entry.progress_percent}%</span>
+                                </div>
+                            </div>
+                            {entry.cta ? (
+                                <ButtonLink to={entry.cta.to} size="sm" variant="secondary" icon="arrowRight" className="shrink-0">
+                                    {entry.cta.label}
+                                </ButtonLink>
+                            ) : null}
+                        </li>
+                    );
+                })}
+            </ul>
+        </section>
+    );
+}
+
 export default function CourseDetail() {
     const { slug } = useParams();
     const { user, isAdmin, isStudent } = useAuth();
@@ -151,6 +216,8 @@ export default function CourseDetail() {
                     </div>
                 </div>
             </section>
+
+            {isEnrolled || isOwner ? <RoadmapStrip /> : null}
 
             <section className="grid gap-8 lg:grid-cols-3">
                 <div className="space-y-8 lg:col-span-2">

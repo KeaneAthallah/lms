@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Course extends Model
@@ -87,6 +88,30 @@ class Course extends Model
     public function grades(): HasMany
     {
         return $this->hasMany(Grade::class);
+    }
+
+    public function prerequisites(): HasMany
+    {
+        return $this->hasMany(CoursePrerequisite::class);
+    }
+
+    public function prerequisiteFor(): HasMany
+    {
+        return $this->hasMany(CoursePrerequisite::class, 'prerequisite_course_id');
+    }
+
+    public function prerequisiteCourses(): BelongsToMany
+    {
+        return $this->belongsToMany(Course::class, 'course_prerequisites', 'course_id', 'prerequisite_course_id')
+            ->withPivot('sort_order')
+            ->orderBy('course_prerequisites.sort_order');
+    }
+
+    public function unlocks(): BelongsToMany
+    {
+        return $this->belongsToMany(Course::class, 'course_prerequisites', 'prerequisite_course_id', 'course_id')
+            ->withPivot('sort_order')
+            ->orderBy('course_prerequisites.sort_order');
     }
 
     public function scopePublished(Builder $query): Builder

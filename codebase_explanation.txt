@@ -50,7 +50,11 @@ app/
   Models/               -> 1 Eloquent model per table (see section 4)
   Services/             -> CertificateService, EnrollmentService,
                            ProgressService, QuizService,
-                           LearningInsightService (business logic)
+                           LearningInsightService, MasteryCalculator,
+                           QuizDiagnosisService, LearningMapService,
+                           ChallengeService, CourseRoadmapService,
+                           InstructorRadarService, PortfolioService
+                           (business logic)
   Policies/             -> e.g. CoursePolicy (view/enroll/learn/manage/delete)
 database/
   migrations/, seeders/ (DatabaseSeeder + domain seeders)
@@ -153,6 +157,24 @@ Public / student:
   GET  /api/dashboard               student dashboard data
   GET  /api/learning-insights       student learning insights (reviews, next
                                     lessons, quiz readiness, study plan)
+  GET  /api/learning-map            concept-by-concept mastery map per active
+                                    course (per-section mastery, next lesson,
+                                    next-upcoming-quiz readiness)
+  GET  /api/portfolio               verifiable evidence: certificates, courses,
+                                    mastery percent, grades, learning minutes
+  GET  /api/learning/challenge      builds a 5-question challenge from the
+                                    student's strongest mastered concept
+  POST /api/learning/challenge/submit  grades the in-memory challenge WITHOUT
+                                    touching quiz_attempts / grades / progress
+  GET  /api/courses/{course:slug}/roadmap  prerequisite chain for a course
+                                    (completed/in_progress/not_started per
+                                    prerequisite, overall none|not_started|
+                                    in_progress|ready) — informational only,
+                                    never blocks enrollment
+  GET  /api/quizzes/{quiz}/readiness  readiness state (not_ready|preparing|
+                                    ready) for one quiz w/ reason + CTA
+  GET  /api/quizzes/{quiz}/recovery   recovery path for a quiz (reviews +
+                                    retake plan built from wrong answers)
   GET  /api/grades, /api/certificates, /api/notifications, /api/profile
 Web (public verification):
   GET  /certificates/{identifier}        CertificateVerifyController@show
@@ -161,6 +183,12 @@ Instructor (all /api/instructor/*):
   courses CRUD + status PATCH, builder (sections/lessons/materials), quizzes +
   questions, assignments, submissions + grading + file downloads, students,
   analytics, dashboard
+  GET  /instructor/courses/{course:slug}/radar   per-course progress radar: per
+       student { progress_percent, last_accessed_at, stats (completed_lessons,
+       total_lessons, best_quiz_percentage), flags [{ kind needs_attention|
+       at_risk|stalled|on_track predecessor, label, evidence }] }. Labels are
+       deliberately neutral/observable (never moralizing); owned-instructor only
+       (403 for other instructors and students).
 Admin (all /api/admin/*):
   users CRUD, roles/permissions, categories, courses, enrollments, certificates,
   dashboard
@@ -200,6 +228,48 @@ Admin (all /api/admin/*):
   duration_seconds, estimated_minutes, estimated, course {id,title,slug} }.
   Mastery thresholds are constants on LearningInsightService (high <60,
   medium 60-74, ready >=75).
+- LearningMapResource: GET /api/learning-map → { data: { generated_at, method:
+  "deterministic_rules", overall_percent, courses: [{ course {id,title,slug},
+  progress_percent, completed_lessons, total_lessons, concepts: [{ section_id,
+  concept, course, lessons_total, lessons_completed, completion_pct,
+  assessment_score|null, quizzes [{id,title,best_score_percentage}],
+  mastery_percent, status mastered|building|review|unassessed, last_attempt_at|
+  null, next_lesson_id|null }], next_lesson {id,title,type,to}|null,
+  upcoming_quiz { state, reason, quiz, cta|null }|null }] }. Concepts whose
+  status is unassessed are mastery-without-assessment; nothing is ever claimed
+  without the student's own evidence.
+- PortfolioResource: { data: { generated_at, method: "deterministic_rules",
+  summary { certificates_count, courses_completed, courses_in_progress,
+  concepts_mastered, concepts_in_progress, overall_mastery_percent,
+  learning_minutes_total }, certificates [], recent_grades [], skills: [
+  { concept, mastery_percent, status } ], courses: [{ course, progress_percent,
+  status active|completed, certificate|null }] } }.
+- ChallengeResource (GET /api/learning/challenge): { data: { concept, course
+  {id,title}, mastery_percent, total_questions, questions: [{ id, question_text,
+  type, points, options: [{ id, option_text }] }] } }. When no concept is
+  mastered, `data` is null with 204/empty state; the backend never persists
+  challenge activity.
+- CourseRoadmapResource: { data: { course {id,title,slug}, prerequisites: [{
+  course {id,title,slug}, state completed|in_progress|not_started,
+  progress_percent, completed_at|null, cta {label,to}|null }], state
+  none|not_started|in_progress|ready } } — informational only.
+- QuizReadinessResource: { data: { quiz {id,title,passing_score,
+  time_limit_minutes}, state not_ready|preparing|ready, reason, cta|null } }.
+- QuizRecoveryResource: { data: { quiz {id,title,passing_score}, concept,
+  attempt {score_percentage,passed,submitted_at}, needs_recovery, why, summary,
+  misconceptions: [{ question_id, question_text, submitted_answer_text,
+  correct_answer_text, explanation }], review: [{ id,title,to }], plan: [{ type
+  review|retake, to, label }] } }.
+- QuizStudentController submit () builds a `diagnosis` block from
+  QuizDiagnosisService onResult: { quiz, attempt, concept, accuracy, status
+  strong|good|caution|review, correct, total, needs_recovery, why, summary,
+  misconceptions [...], recommendations [{ type review|retake, to (SPA route:
+  /learn/{courseSlug}/{lesson.id} or /quiz/{id}), label }] }. Quiz.jsx renders it
+  as a "Explain my mistakes" card between the pass banner and the question review.
+- InstructorRadarResource: { data: { course {id,title,slug}, students: [{
+  student {id,name,email}, progress_percent, last_accessed_at|null, stats {
+  completed_lessons, total_lessons, best_quiz_percentage|null }, flags }],
+  updated_at } }.
 - Instructor dashboard payloads: pending_submissions carry { id, student:
   {id,name,avatar}, assignment: {id,title}, course: {...}, submitted_at },
   recent_quiz_activity carries student-name + avatar, etc.
@@ -258,11 +328,13 @@ Admin (all /api/admin/*):
   evaluasi, verifikasi sertifikat (navy public-service panel), peran, informasi,
   faq, closing CTA; loads /api/courses?sort=popular +
   /api/courses/categories via useFeatured), Browse,
-  CourseDetail, MyCourses, StudentDashboard, LearningInsights, Learn, Quiz,
-  Assignment, Grades, Certificates, Notifications, Profile, VerifyCertificate,
-  Login, Register.
-  instructor/: InstructorDashboard, InstructorCourses, InstructorCourseBuilder,
-  InstructorAnalytics, InstructorStudents, InstructorSubmissions.
+CourseDetail, MyCourses, StudentDashboard, LearningInsights,
+   LearningMap, Portfolio, Challenge, Learn, Quiz, Assignment, Grades,
+   Certificates, Notifications, Profile, VerifyCertificate, Login, Register.
+   instructor/: InstructorDashboard, InstructorCourses,
+   InstructorCourseBuilder (with "Learning radar" action link to
+   /instructor/courses/:slug/radar), InstructorRadar, InstructorAnalytics,
+   InstructorStudents, InstructorSubmissions.
   admin/: AdminDashboard, AdminCourses, AdminUsers, AdminRoles,
   AdminCategories, AdminEnrollments, AdminCertificates.
 - Branding: institution name comes from config('lms.institution_name')
@@ -285,6 +357,28 @@ Admin (all /api/admin/*):
   signals from quiz/assignment thresholds, next-lesson recommendations, quiz
   readiness states (not_ready/preparing/ready), 7-day momentum + streak, and an
   ordered study plan using real lesson durations (marked estimated when derived).
+- MasteryCalculator: per-course-section concept mastery = 60% best recent quiz
+  score + 40% lesson completion; status mastered/building/review/unassessed
+  (constants ASSESSMENT_WEIGHT/COMPLETION_WEIGHT/QUIZ_READY_THRESHOLD on the
+  service). Pure calculation — no storage.
+- QuizDiagnosisService: explains a submitted attempt (accurate% vs passing,
+  status, why, misconceptions from wrong answers, SPA recommendations). Stored
+  nowhere; computed on the fly from the attempt's answers.
+- LearningMapService: maps concept mastery per active course + next lesson +
+  next-upcoming-quiz readiness, for the authed student only.
+- ChallengeService: builds a 5-question challenge from the student's best
+  mastered concept and grades an in-memory submission. NEVER writes attempts/
+  grades/progress — the checkpoint is zero side-effects.
+- CourseRoadmapService: prerequisite chain (course_prerequisites table,
+  seeded per category by created_at) with per-prerequisite state; overall state
+  is none/not_started/in_progress/ready. Informational only — enrollment never
+  requires prerequisites.
+- InstructorRadarService: per-course student progress radar with neutral flags
+  (needs_attention/at_risk/stalled/on_track) derived from progress %, recency,
+  quiz best score; deterministic + explainable (evidence strings included).
+- PortfolioService: aggregates verifiable evidence — certificates, course
+  completions, concept mastery (MasteryCalculator), recent grades, and real
+  learning minutes (video + text lesson durations under progress).
 
 10. KEY FLOWS
 --------------------------------------------------------------------------------
@@ -306,11 +400,13 @@ Admin (all /api/admin/*):
 
 11. TESTING
 --------------------------------------------------------------------------------
-- `php artisan test` runs tests/Feature (55 tests, 194 assertions) against a
+- `php artisan test` runs tests/Feature (85 tests, 342 assertions) against a
   sqlite :memory: DB.
   Files: AuthenticationTest, CourseTest, EnrollmentTest, RoleAccessTest,
   LessonProgressTest, QuizScoringTest, AssignmentGradingTest, CertificateTest,
-  LearningInsightsTest, ExampleTest, InstructorDashboardTest.
+  LearningInsightsTest, LearningMapTest, QuizDiagnosisApiTest, ChallengeTest,
+  CourseRoadmapTest, InstructorRadarTest, PortfolioTest, ExampleTest,
+  InstructorDashboardTest.
 - Conventions: PHPUnit, RefreshDatabase, model factories, feature tests per
   domain, keep the narrowest filter on while developing
   (`php artisan test --filter=...`).
@@ -347,6 +443,17 @@ Admin (all /api/admin/*):
   constants on LearningInsightService; the endpoint is scoped to the authed user
   only, returns a resource under `data`, and all claims are derived from real
   progress/attempt/grade rows (no fabricated or AI data).
+- The intelligence layer (learning map, diagnosis, challenge, roadmap, radar,
+  portfolio) follows one hard rule: deterministic, explainable logic over real
+  student data only, exported with `method: "deterministic_rules"` — never
+  fabricate mastery, readiness, or flags. Challenge mode and diagnosis write
+  NO rows.
+- `routes/web.php` routes carry NO `->name()`; the SPA uses raw paths. New
+  routes follow the existing prefixes (`/api/*`, auth + `role:` middleware
+  groups) and the two public certificate-verify routes.
+- UI wording for flags/mastery is deliberately neutral and observable
+  (needs_attention/at_risk/stalled, needs_review) — never moralizing or
+  judgmental toward students.
 
 ================================================================================
 END OF EXPLANATION

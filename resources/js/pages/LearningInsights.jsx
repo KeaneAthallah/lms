@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../api';
-import { Alert, Badge, ButtonLink, EmptyState, Icon, PageHeader, PageLoader, Section, StatCard, timeAgo } from '../components/ui';
+import { Alert, Badge, ButtonLink, EmptyState, Icon, PageHeader, PageLoader, ProgressBar, Section, StatCard, timeAgo } from '../components/ui';
 
 const readinessMeta = {
     not_ready: { color: 'slate', label: 'Not ready yet' },
@@ -20,6 +20,12 @@ const momentumMeta = {
     'Getting back on track': 'amber',
     'Light week': 'amber',
     'No activity yet': 'slate',
+};
+
+const masteryMeta = {
+    mastered: { color: 'green', label: 'Mastered', icon: 'checkCircle' },
+    building: { color: 'blue', label: 'Building', icon: 'trendingUp' },
+    review: { color: 'amber', label: 'Needs review', icon: 'alert' },
 };
 
 function FocusCard({ focus }) {
@@ -206,9 +212,11 @@ export default function LearningInsights() {
 
     const summary = data.summary ?? {};
     const momentum = summary.momentum ?? {};
+    const mastery = data.mastery ?? {};
     const { focus, reviews = [], recommendations = [], quiz_readiness = [], study_plan = [] } = data;
 
     const momentumBadge = momentumMeta[momentum.label] ?? 'slate';
+    const masteryMetaEntry = masteryMeta[mastery.status] ?? { color: 'slate', label: mastery.status ?? '—', icon: 'chart' };
 
     const hasContent =
         (summary.active_courses ?? 0) > 0 || reviews.length > 0 || recommendations.length > 0 || quiz_readiness.length > 0 || study_plan.length > 0;
@@ -237,14 +245,47 @@ export default function LearningInsights() {
                     hint={momentum.streak_days ? `${momentum.streak_days}-day streak` : null}
                 />
                 <StatCard
-                    label="Quiz attempts"
-                    value={momentum.quiz_attempts_7d ?? 0}
-                    icon="puzzle"
-                    tone="amber"
+                    label="Learning time (7d)"
+                    value={`${(summary.learning_minutes_7d ?? 0)}m`}
+                    icon="clock"
+                    tone="slate"
                     hint={momentum.submissions_7d ? `${momentum.submissions_7d} graded this week` : null}
                 />
                 <StatCard label="Needs review" value={summary.reviews_count ?? 0} icon="alert" tone={summary.reviews_count ? 'red' : 'slate'} />
             </div>
+
+            {mastery.overall_percent !== null && mastery.overall_percent !== undefined ? (
+                <section className="grid gap-6 rounded-2xl border border-brand-200 bg-brand-50/60 p-5 lg:grid-cols-2 lg:items-center">
+                    <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Icon name="compass" className="h-5 w-5 text-brand-600" />
+                            <h2 className="font-bold text-slate-900">Concept mastery</h2>
+                            <Badge color={masteryMetaEntry.color} dot>{masteryMetaEntry.label}</Badge>
+                        </div>
+                        <p className="mt-1 text-sm text-slate-600">
+                            Your weighted mastery across assessed concepts from quiz accuracy and lesson activity.
+                        </p>
+                        <div className="mt-3 flex items-center gap-3">
+                            <ProgressBar value={mastery.overall_percent} color="bg-brand-600" className="flex-1" />
+                            <span className="text-sm font-bold text-slate-900">{mastery.overall_percent}%</span>
+                        </div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                        <div className="flex items-center gap-3">
+                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
+                                <Icon name="cpu" className="h-5 w-5" />
+                            </span>
+                            <div className="min-w-0 flex-1">
+                                <p className="font-bold text-slate-900">Put your skills to the test</p>
+                                <p className="text-sm text-slate-500">5-question challenge across every concept.</p>
+                            </div>
+                            <ButtonLink to="/challenge" size="sm" variant="dark" icon="sparkles" className="shrink-0">
+                                Start challenge
+                            </ButtonLink>
+                        </div>
+                    </div>
+                </section>
+            ) : null}
 
             {focus ? <FocusCard focus={focus} /> : null}
 

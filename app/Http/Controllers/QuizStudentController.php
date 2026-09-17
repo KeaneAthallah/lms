@@ -7,6 +7,7 @@ use App\Http\Resources\QuizResource;
 use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\QuizQuestion;
+use App\Services\QuizDiagnosisService;
 use App\Services\QuizService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -127,6 +128,7 @@ class QuizStudentController extends Controller
                 ],
             ],
             'questions' => $questions,
+            'diagnosis' => (new QuizDiagnosisService)->diagnose($attempt),
         ];
     }
 }

@@ -9,6 +9,7 @@ use App\Models\Course;
 use App\Models\Enrollment;
 use App\Models\Lesson;
 use App\Models\LessonProgress;
+use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\User;
 use App\SubmissionStatus;
@@ -55,6 +56,8 @@ class LearningInsightService
         $focus = $this->pickFocus($reviews, $recommendations);
         [$studyPlan, $studyPlanTotalMinutes] = $this->buildStudyPlan($reviews, $recommendations, $quizReadiness);
 
+        $masteryPercent = (new MasteryCalculator)->build($enrollments, $attemptsByQuiz)['overall_percent'];
+
         return [
             'summary' => [
                 'active_courses' => $enrollments->count(),
@@ -63,6 +66,11 @@ class LearningInsightService
                 'quizzes_upcoming_count' => count($quizReadiness),
                 'momentum' => $momentum,
                 'study_plan_total_minutes' => $studyPlanTotalMinutes,
+                'learning_minutes_7d' => $this->learningMinutes7d($student),
+            ],
+            'mastery' => [
+                'overall_percent' => $masteryPercent,
+                'status' => $this->masteryStatusFor($masteryPercent),
             ],
             'focus' => $focus,
             'reviews' => $reviews,
@@ -329,6 +337,151 @@ class LearningInsightService
         }
 
         return $readiness;
+    }
+
+    /**
+     * Compute the readiness state for a single quiz, mirroring the rules used by
+     * {@see buildQuizReadiness}. Returns null when the quiz is not attached to a
+     * lesson (e.g. spaced quizzes with no curriculum position).
+     *
+     * @return array<string, mixed>|null
+     */
+    public function quizReadinessFor(User $student, Quiz $quiz): ?array
+    {
+        $lesson = $quiz->lesson;
+
+        if ($lesson === null) {
+            return null;
+        }
+
+        $course = $quiz->course;
+        $course->load([
+            'sections' => fn ($query) => $query->orderBy('sort_order')->with([
+                'lessons' => fn ($query) => $query->published()->orderBy('sort_order')->with([
+                    'progress' => fn ($query) => $query->where('student_id', $student->id),
+                ]),
+            ]),
+        ]);
+
+        $lessons = collect();
+
+        foreach ($course->sections as $section) {
+            foreach ($section->lessons as $courseLesson) {
+                $lessons->push($courseLesson);
+            }
+        }
+
+        $index = $lessons->search(fn (Lesson $courseLesson) => (int) $courseLesson->id === (int) $lesson->id);
+
+        if ($index === false) {
+            return null;
+        }
+
+        $lesson->load(['progress' => fn ($query) => $query->where('student_id', $student->id)]);
+
+        $precedingLessons = $lessons->slice(0, $index);
+
+        $attemptsByQuiz = $this->loadQuizAttempts($student);
+        $submissionsByAssignment = $this->loadGradedSubmissions($student);
+
+        $alreadyPassed = $this->quizPassed($quiz, $attemptsByQuiz);
+
+        $incompletePreceding = $precedingLessons->filter(fn (Lesson $preceding) => ! $this->isCompletedByStudent($preceding))->count();
+
+        if ($alreadyPassed) {
+            $state = 'passed';
+            $reason = 'You have already passed this quiz. A retake is optional.';
+        } elseif ($incompletePreceding > 0) {
+            $state = 'not_ready';
+            $reason = "Complete the {$incompletePreceding} remaining ".($incompletePreceding === 1 ? 'lesson' : 'lessons')." in \"{$course->title}\" before attempting this quiz.";
+        } else {
+            $scores = $precedingLessons
+                ->map(fn (Lesson $preceding) => $this->lessonAssessment($preceding, $attemptsByQuiz, $submissionsByAssignment))
+                ->filter()
+                ->map(fn (array $assessment) => $assessment['score']);
+
+            if ($scores->isEmpty()) {
+                $state = 'ready';
+                $reason = 'You have completed every lesson leading up to this quiz, and there is no assessment data to suggest gaps. You are ready to take it.';
+            } else {
+                $average = round($scores->avg(), 1);
+
+                if ($average >= self::QUIZ_READY_THRESHOLD) {
+                    $state = 'ready';
+                    $reason = "You have completed every lesson leading up to this quiz and your recent assessment average ({$this->formatPercent($average)}%) is at or above the ".self::QUIZ_READY_THRESHOLD.'% readiness threshold.';
+                } else {
+                    $state = 'preparing';
+                    $reason = "You have completed every lesson leading up to this quiz, but your recent assessment average ({$this->formatPercent($average)}%) is below the ".self::QUIZ_READY_THRESHOLD.'% readiness threshold. Review the flagged topics first.';
+                }
+            }
+        }
+
+        return [
+            'lesson_id' => $lesson->id,
+            'lesson' => $this->lessonPayload($lesson, $course),
+            'quiz' => [
+                'id' => $quiz->id,
+                'title' => $quiz->title,
+                'passing_score' => (float) $quiz->passing_score,
+                'time_limit_minutes' => $quiz->time_limit_minutes,
+            ],
+            'state' => $state,
+            'reason' => $reason,
+            'attempts_used' => ($attemptsByQuiz->get($quiz->id) ?? collect())->count(),
+            'cta' => ['to' => "/quiz/{$quiz->id}", 'label' => $state === 'passed' ? 'Retake quiz' : 'Take quiz'],
+        ];
+    }
+
+    /**
+     * @param  Collection<int, QuizAttempt>  $attemptsByQuiz
+     */
+    protected function quizPassed(Quiz $quiz, Collection $attemptsByQuiz): bool
+    {
+        return ($attemptsByQuiz->get($quiz->id) ?? collect())->contains(fn (QuizAttempt $attempt) => (bool) $attempt->passed);
+    }
+
+    /**
+     * Real learning minutes over the last 7 days, derived from completed lesson
+     * durations and elapsed quiz attempt time. No fabricated statistics.
+     */
+    public function learningMinutes7d(User $student): int
+    {
+        $since = now()->subDays(7);
+
+        $completed = LessonProgress::where('student_id', $student->id)
+            ->whereNotNull('completed_at')
+            ->where('completed_at', '>=', $since)
+            ->with('lesson:id,duration_seconds')
+            ->get(['lesson_id', 'completed_at']);
+
+        $lessonMinutes = $completed->sum(
+            fn (LessonProgress $row) => is_numeric($row->lesson?->duration_seconds) && (int) $row->lesson->duration_seconds > 0
+                ? (int) ceil((int) $row->lesson->duration_seconds / 60)
+                : 0
+        );
+
+        $attempts = QuizAttempt::where('student_id', $student->id)
+            ->whereNotNull('submitted_at')
+            ->whereNotNull('started_at')
+            ->where('submitted_at', '>=', $since)
+            ->get(['started_at', 'submitted_at']);
+
+        $attemptMinutes = $attempts->sum(function (QuizAttempt $attempt): int {
+            $seconds = max(0, (int) $attempt->started_at->diffInSeconds($attempt->submitted_at));
+
+            return min(120, (int) ceil($seconds / 60));
+        });
+
+        return $lessonMinutes + $attemptMinutes;
+    }
+
+    protected function masteryStatusFor(int $percent): string
+    {
+        return match (true) {
+            $percent >= self::QUIZ_READY_THRESHOLD => 'mastered',
+            $percent >= self::QUIZ_HIGH_REVIEW_THRESHOLD => 'building',
+            default => 'review',
+        };
     }
 
     /**

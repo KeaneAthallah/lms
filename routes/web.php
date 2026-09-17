@@ -12,7 +12,9 @@ use App\Http\Controllers\AssignmentStudentController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CertificateController;
 use App\Http\Controllers\CertificateVerifyController;
+use App\Http\Controllers\ChallengeController;
 use App\Http\Controllers\CourseController;
+use App\Http\Controllers\CourseRoadmapController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EnrollmentController;
 use App\Http\Controllers\GradeController;
@@ -23,15 +25,20 @@ use App\Http\Controllers\InstructorDashboardController;
 use App\Http\Controllers\InstructorLessonController;
 use App\Http\Controllers\InstructorMaterialController;
 use App\Http\Controllers\InstructorQuizController;
+use App\Http\Controllers\InstructorRadarController;
 use App\Http\Controllers\InstructorSectionController;
 use App\Http\Controllers\InstructorStudentController;
 use App\Http\Controllers\InstructorSubmissionController;
 use App\Http\Controllers\LearningController;
 use App\Http\Controllers\LearningInsightsController;
+use App\Http\Controllers\LearningMapController;
 use App\Http\Controllers\LessonProgressController;
 use App\Http\Controllers\MaterialController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\PortfolioController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\QuizReadinessController;
+use App\Http\Controllers\QuizRecoveryController;
 use App\Http\Controllers\QuizStudentController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -71,6 +78,10 @@ Route::prefix('api')->group(function (): void {
 
         Route::get('/dashboard', [DashboardController::class, 'student']);
         Route::get('/learning-insights', [LearningInsightsController::class, 'show']);
+        Route::get('/learning-map', [LearningMapController::class, 'show']);
+        Route::get('/portfolio', [PortfolioController::class, 'show']);
+        Route::get('/learning/challenge', [ChallengeController::class, 'show']);
+        Route::post('/learning/challenge/submit', [ChallengeController::class, 'grade']);
 
         Route::post('/courses/{course:slug}/enroll', [EnrollmentController::class, 'store']);
         Route::get('/courses/{course:slug}/learn', [LearningController::class, 'show']);
@@ -79,12 +90,15 @@ Route::prefix('api')->group(function (): void {
         Route::get('/lessons/{lesson}/materials/{material}/download', [MaterialController::class, 'download']);
 
         Route::get('/courses/{course:slug}/assignments', [AssignmentStudentController::class, 'index']);
+        Route::get('/courses/{course:slug}/roadmap', [CourseRoadmapController::class, 'show']);
         Route::get('/assignments/{assignment}', [AssignmentStudentController::class, 'show']);
         Route::get('/assignments/{assignment}/my-submission', [AssignmentStudentController::class, 'mySubmission']);
         Route::post('/assignments/{assignment}/submit', [AssignmentStudentController::class, 'submit']);
 
         Route::get('/quizzes/{quiz}', [QuizStudentController::class, 'show']);
         Route::post('/quizzes/{quiz}/start', [QuizStudentController::class, 'start']);
+        Route::get('/quizzes/{quiz}/readiness', [QuizReadinessController::class, 'show']);
+        Route::get('/quizzes/{quiz}/recovery', [QuizRecoveryController::class, 'show']);
         Route::get('/quiz-attempts/{attempt}', [QuizStudentController::class, 'showAttempt']);
         Route::post('/quiz-attempts/{attempt}/submit', [QuizStudentController::class, 'submit']);
 
@@ -142,6 +156,7 @@ Route::prefix('api')->middleware(['auth', 'role:instructor'])->group(function ()
     Route::get('/instructor/courses/{course:slug}/submissions/{submission}/files/{fileIndex}', [InstructorSubmissionController::class, 'downloadFile']);
 
     Route::get('/instructor/courses/{course:slug}/analytics', [InstructorAnalyticsController::class, 'show']);
+    Route::get('/instructor/courses/{course:slug}/radar', [InstructorRadarController::class, 'show']);
 });
 
 Route::prefix('api')->middleware(['auth', 'role:admin'])->group(function (): void {
