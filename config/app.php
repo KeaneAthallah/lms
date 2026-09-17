@@ -56,6 +56,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | LAN Development Server
+    |--------------------------------------------------------------------------
+    |
+    | When DEV_SERVER_HOST is set (this machine's LAN IP), "composer run dev"
+    | binds the web server to 0.0.0.0:DEV_SERVER_PORT so the app can be opened
+    | from another device on the same network. Leave it unset to keep the
+    | server on 127.0.0.1 only.
+    |
+    */
+
+    'dev_server_host' => env('DEV_SERVER_HOST'),
+
+    'dev_server_port' => env('DEV_SERVER_PORT', 8000),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |
