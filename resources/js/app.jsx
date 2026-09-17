@@ -11,6 +11,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import MyCourses from './pages/MyCourses';
 import StudentDashboard from './pages/StudentDashboard';
+import LearningInsights from './pages/LearningInsights';
 import Learn from './pages/Learn';
 import QuizPage from './pages/Quiz';
 import AssignmentPage from './pages/Assignment';
@@ -54,6 +55,10 @@ createRoot(document.getElementById('app')).render(
                     <Route
                         path="/dashboard"
                         element={<ProtectedRoute roles={['student', 'instructor', 'admin']}>{inLayout(<StudentDashboard />)}</ProtectedRoute>}
+                    />
+                    <Route
+                        path="/learning-insights"
+                        element={<ProtectedRoute roles={['student', 'instructor', 'admin']}>{inLayout(<LearningInsights />)}</ProtectedRoute>}
                     />
                     <Route
                         path="/learn/:slug/*"

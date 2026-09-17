@@ -27,6 +27,7 @@ use App\Http\Controllers\InstructorSectionController;
 use App\Http\Controllers\InstructorStudentController;
 use App\Http\Controllers\InstructorSubmissionController;
 use App\Http\Controllers\LearningController;
+use App\Http\Controllers\LearningInsightsController;
 use App\Http\Controllers\LessonProgressController;
 use App\Http\Controllers\MaterialController;
 use App\Http\Controllers\NotificationController;
@@ -69,6 +70,7 @@ Route::prefix('api')->group(function (): void {
         Route::match(['put', 'post'], '/profile', [ProfileController::class, 'update']);
 
         Route::get('/dashboard', [DashboardController::class, 'student']);
+        Route::get('/learning-insights', [LearningInsightsController::class, 'show']);
 
         Route::post('/courses/{course:slug}/enroll', [EnrollmentController::class, 'store']);
         Route::get('/courses/{course:slug}/learn', [LearningController::class, 'show']);

@@ -49,7 +49,8 @@ app/
     Resources/          -> Eloquent API Resources (JSON shapes), see section 7
   Models/               -> 1 Eloquent model per table (see section 4)
   Services/             -> CertificateService, EnrollmentService,
-                           ProgressService, QuizService (business logic)
+                           ProgressService, QuizService,
+                           LearningInsightService (business logic)
   Policies/             -> e.g. CoursePolicy (view/enroll/learn/manage/delete)
 database/
   migrations/, seeders/ (DatabaseSeeder + domain seeders)
@@ -150,6 +151,8 @@ Public / student:
   GET  /api/assignments/{assignment} (+ my-submission, submit)
   GET  /api/courses/{course:slug}/assignments
   GET  /api/dashboard               student dashboard data
+  GET  /api/learning-insights       student learning insights (reviews, next
+                                    lessons, quiz readiness, study plan)
   GET  /api/grades, /api/certificates, /api/notifications, /api/profile
 Web (public verification):
   GET  /certificates/{identifier}        CertificateVerifyController@show
@@ -182,6 +185,21 @@ Admin (all /api/admin/*):
     questions: [...] } — there is NO `result.quiz` key at top level.
 - AssignmentResource: `my_submission` is null-safe via loaded submissions.
 - QuizAttemptResource used for attempt history/review.
+- LearningInsightsResource: GET /api/learning-insights returns a single resource
+  (wrapped under `data`) with { generated_at, method: "deterministic_rules" (all
+  recommendations are rule-based — NO external AI), summary { active_courses,
+  reviews_count, recommendations_count, quizzes_upcoming_count, momentum { label,
+  lessons_completed_7d, quiz_attempts_7d, submissions_7d, streak_days,
+  last_activity_at }, study_plan_total_minutes }, focus (single top action:
+  type review|continue, reason, lesson, cta), reviews [{ priority high|medium,
+  score, evidence, reason, lesson, cta }], recommendations [{ kind "continue",
+  reason, lesson, cta }], quiz_readiness [{ state not_ready|preparing|ready,
+  reason, quiz { passing_score, time_limit_minutes }, lesson, cta }], study_plan
+  [{ action Review|Continue|Practice, minutes, estimated, reason, lesson, cta,
+  order }] }. Lesson payloads always carry { id, title, type, completed,
+  duration_seconds, estimated_minutes, estimated, course {id,title,slug} }.
+  Mastery thresholds are constants on LearningInsightService (high <60,
+  medium 60-74, ready >=75).
 - Instructor dashboard payloads: pending_submissions carry { id, student:
   {id,name,avatar}, assignment: {id,title}, course: {...}, submitted_at },
   recent_quiz_activity carries student-name + avatar, etc.
@@ -193,7 +211,8 @@ Admin (all /api/admin/*):
   auth/role (redirects to /login or /). Routes: /, /browse, /courses/:slug,
   /verify-certificate (SPA search form → window.location.assign to the public
   Blade verify route), /login, /register, /my-courses, /dashboard,
-  /learn/:slug/*, /quiz/:id, /assignment/:id, /grades, /certificates(/:id),
+  /learning-insights, /learn/:slug/*, /quiz/:id, /assignment/:id, /grades,
+  /certificates(/:id),
   /notifications, /profile, /instructor/*, /admin/* (admin routes also gated
   server-side via EnsureUserHasRole).
 - api.js: axios client (baseURL '/', withCredentials, CSRF) + apiError() helper;
@@ -239,8 +258,9 @@ Admin (all /api/admin/*):
   evaluasi, verifikasi sertifikat (navy public-service panel), peran, informasi,
   faq, closing CTA; loads /api/courses?sort=popular +
   /api/courses/categories via useFeatured), Browse,
-  CourseDetail, MyCourses, StudentDashboard, Learn, Quiz, Assignment, Grades,
-  Certificates, Notifications, Profile, VerifyCertificate, Login, Register.
+  CourseDetail, MyCourses, StudentDashboard, LearningInsights, Learn, Quiz,
+  Assignment, Grades, Certificates, Notifications, Profile, VerifyCertificate,
+  Login, Register.
   instructor/: InstructorDashboard, InstructorCourses, InstructorCourseBuilder,
   InstructorAnalytics, InstructorStudents, InstructorSubmissions.
   admin/: AdminDashboard, AdminCourses, AdminUsers, AdminRoles,
@@ -261,6 +281,10 @@ Admin (all /api/admin/*):
   pass/fail determination, completion wiring + notifications.
 - CertificateService: issues numbered certificates with public identifier,
   handles re-issuing/verification lookups.
+- LearningInsightService: deterministic, rule-based learning insights — review
+  signals from quiz/assignment thresholds, next-lesson recommendations, quiz
+  readiness states (not_ready/preparing/ready), 7-day momentum + streak, and an
+  ordered study plan using real lesson durations (marked estimated when derived).
 
 10. KEY FLOWS
 --------------------------------------------------------------------------------
@@ -282,11 +306,11 @@ Admin (all /api/admin/*):
 
 11. TESTING
 --------------------------------------------------------------------------------
-- `php artisan test` runs tests/Feature (44 tests, 133 assertions) against a
+- `php artisan test` runs tests/Feature (55 tests, 194 assertions) against a
   sqlite :memory: DB.
   Files: AuthenticationTest, CourseTest, EnrollmentTest, RoleAccessTest,
   LessonProgressTest, QuizScoringTest, AssignmentGradingTest, CertificateTest,
-  ExampleTest, InstructorDashboardTest.
+  LearningInsightsTest, ExampleTest, InstructorDashboardTest.
 - Conventions: PHPUnit, RefreshDatabase, model factories, feature tests per
   domain, keep the narrowest filter on while developing
   (`php artisan test --filter=...`).
@@ -319,6 +343,10 @@ Admin (all /api/admin/*):
   never render prices, payments, or invented ministry/agency/statistical claims;
   homepage numbers come only from real API payloads.
 - Lesson `progress` shape differs by endpoint (see section 7) — do not mix them.
+- Learning insight thresholds (quiz high <60, medium 60-74, ready >=75) are
+  constants on LearningInsightService; the endpoint is scoped to the authed user
+  only, returns a resource under `data`, and all claims are derived from real
+  progress/attempt/grade rows (no fabricated or AI data).
 
 ================================================================================
 END OF EXPLANATION
