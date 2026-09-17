@@ -1,0 +1,310 @@
+================================================================================
+CODEBASE EXPLANATION — Modern LMS (Laravel 13 + React 19 SPA / React Router)
+================================================================================
+
+1. OVERVIEW
+--------------------------------------------------------------------------------
+A full-featured Learning Management System ("LMS") built as a single Laravel
+application serving a plain React 19 SPA (React Router — NO Inertia) from one
+Blade shell. There are three role-based experiences: Student, Instructor, and
+Admin. The backend exposes JSON APIs under the /api/* prefix (session-auth
+guarded) plus two public web routes for certificate verification. The public
+Welcome page is styled as an institutional Indonesian digital-learning portal
+with a role-aware hero; the rest of the app (dashboards, learn experience) uses
+English UI copy. Students can browse courses, enroll (free courses or "manual
+approval" flows), follow a lesson curriculum (text/video/external-link/quiz/
+assignment), take timed quizzes, submit assignments, track progress, earn
+certificates, and view grades. Instructors build courses (sections + lessons),
+attach quizzes/assignments, upload materials/videos, review and grade
+submissions, and view analytics. Admins manage users, roles/permissions,
+courses, categories, enrollments, and certificates.
+
+2. STACK
+--------------------------------------------------------------------------------
+- PHP 8.5.0, Laravel Framework 13.32.0
+- SQLite database (database/database.sqlite; gitignored via database/.gitignore
+  so the live DB is never committed)
+- React 19 SPA rendered from a single Blade root (resources/views/app.blade.php
+  mounts #app and injects window.__LMS_USER__ + window.__LMS_CONFIG__),
+  react-router-dom v7 (BrowserRouter) for client-side routing, Tailwind CSS v4
+  (CSS-first config via @theme in resources/css/app.css — there is NO
+  tailwind.config.js)
+- Vite 8 for bundling (laravel-vite-plugin + @vitejs/plugin-react);
+  `npm run dev` / `npm run build`
+- PHPUnit (tests/Feature, sqlite :memory:, RefreshDatabase + model factories)
+- Composer direct packages: Laravel Framework, Laravel Pint (code style),
+  PHPUnit, and support packages (see composer.json / package.json for the
+  authoritative list and versions)
+
+3. DIRECTORY MAP
+--------------------------------------------------------------------------------
+app/
+  Enums/ and value enums (e.g. App\QuizQuestionType, CourseStatus, LessonType,
+  EnrollmentStatus, AssignmentSubmissionStatus, etc.)
+  Helpers/ (enum helpers and shared cast-style helpers)
+  Http/
+    Controllers/        -> thin controllers, JSON API handlers (see section 6)
+    Middleware/         -> e.g. EnsureUserHasRole for role-gated routes
+    Requests/           -> FormRequest validation, grouped by domain folder
+    Resources/          -> Eloquent API Resources (JSON shapes), see section 7
+  Models/               -> 1 Eloquent model per table (see section 4)
+  Services/             -> CertificateService, EnrollmentService,
+                           ProgressService, QuizService (business logic)
+  Policies/             -> e.g. CoursePolicy (view/enroll/learn/manage/delete)
+database/
+  migrations/, seeders/ (DatabaseSeeder + domain seeders)
+resources/
+  js/                   -> React SPA entry (app.jsx), auth context, api client
+  js/pages/             -> routed pages organized by role
+  js/components/        -> ui.jsx (design-system primitives), icons.jsx (inline
+                           SVG set + categoryIcon), Layout.jsx (authed sidebar
+                           + public GuestNav), CourseCard.jsx, FooterSection.jsx,
+                           landing.jsx (public-portal components),
+                           ProtectedRoute.jsx
+  css/app.css           -> Tailwind entry + @theme design tokens
+  views/app.blade.php   -> single root view that mounts the React app and
+                           injects window.__LMS_USER__ / __LMS_CONFIG__
+routes/web.php          -> ALL routes (web + JSON API + certificate verify)
+tests/
+  Feature/              -> PHPUnit feature tests (one file per domain)
+public/favicon.svg      -> institutional book-on-gradient brand mark (plus
+                           public/favicon.ico, 16/32px ICO fallback, referenced
+                           from app.blade.php head)
+public/build            -> compiled Vite assets (manifest)
+
+4. DATA MODEL (tables)
+--------------------------------------------------------------------------------
+Core entities:
+- users            (name, email, headline, bio, avatar_path, is_active,
+                    roles via role_user, permissions via permission_user)
+- roles, permissions, permission_role, permission_user
+- courses          (instructor_id, category_id, title, slug, descriptions,
+                    thumbnail_path, level [beginner|intermediate|advanced],
+                    language, duration_minutes, status [draft|published|
+                    archived], price, learning_objectives, requirements,
+                    published_at)
+- course_categories(name, slug, description, icon, status)
+- course_sections  (course_id, title, description, sort_order)
+- lessons          (section_id, course_id, quiz_id, assignment_id, title, type
+                    [text|video|quiz|assignment|external_link|document],
+                    content, video_path (uploaded file) vs video_url (external
+                    URL — exactly one for video lessons), external_url,
+                    duration_seconds, is_published, sort_order)
+- quizzes          (course_id, title, description, instructions,
+                    time_limit_minutes, passing_score, attempts_allowed, status)
+- quiz_questions   (quiz_id, type [multiple_choice|true_false|short_answer],
+                    question_text, points, sort_order)
+- quiz_options     (quiz_question_id, option_text, is_correct, explanation)
+- quiz_attempts    (quiz_id, student_id, status [in_progress|completed|passed|
+                    failed], started_at, submitted_at, score, score_percentage,
+                    passed)
+- quiz_answers     (quiz_attempt_id, quiz_question_id, answer, is_correct,
+                    points_earned)
+- assignments      (course_id, title, description, instructions, due_at,
+                    max_score, allowed_file_types, max_file_size_kb, status)
+- assignment_submissions (assignment_id, student_id, content, files, version,
+                    status [draft|submitted|returned|graded], submitted_at,
+                    grade, feedback, graded_by, graded_at)
+- grades           (polymorphic-ish source: source_type/source_id, type, score,
+                    max_score, percentage, feedback, graded_by, graded_at)
+- enrollments      (student_id, course_id, status [active|completed|dropped],
+                    progress_percent, enrolled_at, completed_at,
+                    last_accessed_at)
+- lesson_progress  (student_id, course_id, lesson_id, progress_percent,
+                    video_position_seconds, started_at, completed_at)
+- lesson_materials (lesson_id, filename, path, disk, mime_type, size, type,
+                    is_downloadable, sort_order)
+- certificates     (student_id, course_id, enrollment_id, certificate_number,
+                    identifier, issued_at)  — identifier is the public verify key
+- notifications    (Laravel standard) — for assignment/grade/quiz notifications
+
+NOTE on linking quizzes/assignments to lessons: the linking column lives on
+`lessons` (lessons.quiz_id, lessons.assignment_id). Quizzes/assignments do NOT
+store a lesson_id. There is NO `quizzes()` / `assignments()` relationship on the
+Lesson model; navigate via `$lesson->quiz->...` / `$lesson->assignment->...`.
+
+5. AUTHENTICATION & AUTHORIZATION
+--------------------------------------------------------------------------------
+- Session-based auth (default Laravel stateful guard). Login/register via
+  POST api/login, api/register; auth state read via GET api/me (UserResource).
+- Role model: User has a `isStudent()`, `isInstructor()`, `isAdmin()` helper and
+  spatie-style role/permission via `HasRoles` trait. Backed enums are compared
+  with `->value` (string/enum equality does NOT match — a known bug class).
+- Route guard: `EnsureUserHasRole` middleware protects admin/routes; frontend is
+  additionally gated by `ProtectedRoute.jsx` (redirects to /login or /).
+- Course-level policies: CoursePolicy (view, enroll/learn, manage, delete).
+- Frontend: auth context (resources/js/auth.jsx) exposes { user, setUser };
+
+6. API SURFACE (all JSON, session authed unless noted)
+--------------------------------------------------------------------------------
+Public / student:
+  GET  /api/courses                  browse + search/filter/sort/paginate
+  GET  /api/courses/categories
+  GET  /api/courses/{course:slug}    detail (CourseResource)
+  POST /api/courses/{course:slug}/enroll
+  GET  /api/courses/{course:slug}/learn            curriculum (student view)
+  GET  /api/courses/{course:slug}/learn/{lesson}   single lesson + nav
+  PATCH /api/lessons/{lesson}/progress             mark progress/complete
+  GET  /api/lessons/{lesson}/materials/{material}/download
+  GET  /api/quizzes/{quiz} / start / submit / share-attempt
+  GET  /api/assignments/{assignment} (+ my-submission, submit)
+  GET  /api/courses/{course:slug}/assignments
+  GET  /api/dashboard               student dashboard data
+  GET  /api/grades, /api/certificates, /api/notifications, /api/profile
+Web (public verification):
+  GET  /certificates/{identifier}        CertificateVerifyController@show
+  GET  /certificates/verify/{identifier} CertificateVerifyController@verify
+Instructor (all /api/instructor/*):
+  courses CRUD + status PATCH, builder (sections/lessons/materials), quizzes +
+  questions, assignments, submissions + grading + file downloads, students,
+  analytics, dashboard
+Admin (all /api/admin/*):
+  users CRUD, roles/permissions, categories, courses, enrollments, certificates,
+  dashboard
+
+7. RESOURCES (JSON shapes) — key gotchas
+--------------------------------------------------------------------------------
+- UserResource: emits `avatar_url` (resolved storage URL), not `avatar`.
+- CourseResource (full), CourseCardResource (card summary; NOT course-level
+  `status` until recently added — InstructorCourses depends on it).
+- LessonResource: `progress` is either null OR an OBJECT { percent,
+  video_position, completed } (NOT an array); quiz `questions_count`; assignment
+  nested brief/submissions; `video_url` is the EFFECTIVE url (uploaded video
+  resolved to storage asset), there is no `video_path` key in responses.
+  GOTCHA: the learn/curriculum payload (GET /courses/{slug}/learn) emits a plain
+  INTEGER progress percent per lesson (Learn.jsx sidebar does
+  `Number(lesson.progress)`); only the single-lesson endpoint uses the object.
+- CourseCardResource: includes `price` — the frontend NEVER renders price,
+  payment, or any commercial/marketplace UI; the public portal is institutional.
+- QuizResource: `total_points` uses whenLoaded('questions'); lesson block exposes
+  course_slug; result payload from quiz submit is
+  { attempt: { ..., quiz: { id, title, passing_score, total_points, course_slug } },
+    questions: [...] } — there is NO `result.quiz` key at top level.
+- AssignmentResource: `my_submission` is null-safe via loaded submissions.
+- QuizAttemptResource used for attempt history/review.
+- Instructor dashboard payloads: pending_submissions carry { id, student:
+  {id,name,avatar}, assignment: {id,title}, course: {...}, submitted_at },
+  recent_quiz_activity carries student-name + avatar, etc.
+
+8. FRONTEND ARCHITECTURE
+--------------------------------------------------------------------------------
+- entry: resources/js/app.jsx — React 19 + BrowserRouter + AuthProvider +
+  ToastProvider; every page is wrapped by Layout.jsx; ProtectedRoute.jsx enforces
+  auth/role (redirects to /login or /). Routes: /, /browse, /courses/:slug,
+  /verify-certificate (SPA search form → window.location.assign to the public
+  Blade verify route), /login, /register, /my-courses, /dashboard,
+  /learn/:slug/*, /quiz/:id, /assignment/:id, /grades, /certificates(/:id),
+  /notifications, /profile, /instructor/*, /admin/* (admin routes also gated
+  server-side via EnsureUserHasRole).
+- api.js: axios client (baseURL '/', withCredentials, CSRF) + apiError() helper;
+  a 419/401 interceptor re-logins to /login with a `next` param. Toasts come
+  from useToast()/ToastProvider.
+- Primary design system: resources/js/components/ui.jsx — primitives: Button,
+  ButtonLink, Field, Input (spreads props — NO icon prop), Textarea, Select,
+  Spinner, Badge, StatusBadge, ProgressBar, EmptyState, Modal, PageHeader, Card,
+  StatCard, Paginator, Avatar, Skeleton, SkeletonRows, PageLoader, Alert,
+  ErrorState, IconButton, Section, DataTable, Breadcrumbs, ConfirmDialog,
+  Dropdown, DropdownItem, ToastProvider/useToast, cx, and format helpers
+  (formatDate, formatDateTime, formatBytes, timeAgo, courseLevelLabel,
+  languageLabel, formatDuration).
+- icons.jsx: ~76 feather-style inline SVG icons keyed in `paths` (unknown names
+  silently fall back to `paths.info` — always verify names) + categoryIcon()
+  slug map. landing.jsx: public-portal components (SectionHeading, IntroStrip,
+  ServicesGrid, BenefitStrip, CategoryDirectory, ProcessSteps, ResourceList,
+  RolePanel, NoticeList, FAQItem, PanelLink, CTAButton) — imported ONLY by
+  pages/Home.jsx. CourseCard.jsx is the shared catalog entry (used by Home,
+  Browse, MyCourses, AdminCourses); FooterSection.jsx is the official
+  institutional footer (Indonesian TAUTAN/AKUN columns; © Lumen Academy).
+- Layout.jsx has two modes: (a) public GuestNav — navy utility bar (institution
+  + Verifikasi Sertifikat/Masuk) + sticky white main header (Beranda /
+  Pembelajaran / Kategori / Tentang / Verifikasi Sertifikat), with a mobile
+  drawer (focus, Escape, scroll-lock); hash links (/#kategori, /#tentang) scroll
+  to anchored sections (scroll-mt-24). (b) authed sidebar layout (256px) with
+  role-grouped nav + mobile drawer.
+- Pages by role (resources/js/pages/):
+  Shared: Home (institutional Indonesian portal; role-aware hero CTAs; loads
+  /api/courses?sort=popular + /api/courses/categories via useFeatured), Browse,
+  CourseDetail, MyCourses, StudentDashboard, Learn, Quiz, Assignment, Grades,
+  Certificates, Notifications, Profile, VerifyCertificate, Login, Register.
+  instructor/: InstructorDashboard, InstructorCourses, InstructorCourseBuilder,
+  InstructorAnalytics, InstructorStudents, InstructorSubmissions.
+  admin/: AdminDashboard, AdminCourses, AdminUsers, AdminRoles,
+  AdminCategories, AdminEnrollments, AdminCertificates.
+- Branding: institution name comes from config('lms.institution_name')
+  ("Lumen Academy") via window.__LMS_CONFIG__.institutionName — used in
+  headers/footer/Home hero and the favicon assets. Public UI copy is Indonesian;
+  authenticated app pages use English.
+
+9. SERVICES (business logic)
+--------------------------------------------------------------------------------
+- EnrollmentService: enroll/gates, manual approval, completion + certificate
+  issuing, progress rollups.
+- ProgressService: marks lesson started/completed, updates lesson_progress
+  records, recalculates enrollment progress_percent.
+- QuizService: start with attempts_allowed enforcement, expiration, auto-grade
+  (multiple-choice exact, true/false exact, short_answer case-insensitive),
+  pass/fail determination, completion wiring + notifications.
+- CertificateService: issues numbered certificates with public identifier,
+  handles re-issuing/verification lookups.
+
+10. KEY FLOWS
+--------------------------------------------------------------------------------
+- Enroll → enrollments row; Learn() fetches curriculum; LessonView tracks
+  progress (video time-threshold ≥90% auto-completes) → ProgressService updates
+  enrollment %; 100% + all lessons complete → EnrollmentService marks completed
+  and issues Certificate.
+- Quiz: start (creates QuizAttempt, may expire after time_limit) → submit →
+  QuizService grades per question → attempt status passed/failed + notification
+  → QuizResult review page (marks lesson complete when passed).
+- Assignment: student submits (attachment upload, allowed_file_types enforced
+  in SubmitAssignmentRequest) → instructor grades in
+  InstructorSubmission.jsx → Grade row created + assignment_submission graded +
+  notification to student.
+- Instructor builder: one page (InstructorCourseBuilder) manages settings,
+  sections, lessons, quizzes (+questions/options), assignments, materials. Quiz
+  creation behind an "Add quiz" button auto-creates a quiz-type lesson first,
+  then POSTs the quiz to /lessons/{lesson}/quiz.
+
+11. TESTING
+--------------------------------------------------------------------------------
+- `php artisan test` runs tests/Feature (44 tests, 133 assertions) against a
+  sqlite :memory: DB.
+  Files: AuthenticationTest, CourseTest, EnrollmentTest, RoleAccessTest,
+  LessonProgressTest, QuizScoringTest, AssignmentGradingTest, CertificateTest,
+  ExampleTest, InstructorDashboardTest.
+- Conventions: PHPUnit, RefreshDatabase, model factories, feature tests per
+  domain, keep the narrowest filter on while developing
+  (`php artisan test --filter=...`).
+- `vendor/bin/pint` (Laravel Pint) keeps PHP style consistent.
+- Frontend has no test runner; verified via `npm run build` and browser logs.
+
+12. CONVENTIONS & REPEATING GOTCHAS (read before editing)
+--------------------------------------------------------------------------------
+- Enums: ALWAYS compare with `->value` against the string, never `==` enum.
+- Eager-load column subsets must include every FK needed by NESTED relations
+  (e.g. loading `assignment:id,title` without `course_id` makes
+  `assignment->course` null inside resources — caused the instructor dashboard
+  500).
+- No `quizzes()`/`assignments()` on Lesson; set `lessons.quiz_id` /
+  `lessons.assignment_id` instead.
+- AssignmentSubmission is the model — `App\Models\Submission` does not exist.
+- SubmissionResource bypasses the JsonResource null guard (its toArray reads
+  `$this->id`/`$this->status->value`), so never call `->resolve()` on a null
+  model — guard first.
+- Resource JSON keys must match what pages consume (progress object vs array,
+  video_url, avatar_url, course status, quiz attempt.quiz.total_points).
+- FormRequests live under app/Http/Requests/*; controllers rely on them for
+  validation; multipart course updates use `?_method=PUT` form posts.
+- CSRF/session: all API calls go through the session-authenticated axios client.
+- Frontend runtime facts: input-style primitives have no icon prop (wrap icons
+  manually, e.g. Browse/Home search); unknown Icon names fall back to
+  `paths.info` silently; hash links use the /#id react-router form (Layout
+  handles the scroll).
+- Public UI (Home, GuestNav, footer, CourseCard) is Indonesian / institutional —
+  never render prices, payments, or invented ministry/agency/statistical claims;
+  homepage numbers come only from real API payloads.
+- Lesson `progress` shape differs by endpoint (see section 7) — do not mix them.
+
+================================================================================
+END OF EXPLANATION
+================================================================================
