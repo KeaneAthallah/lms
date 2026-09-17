@@ -357,7 +357,9 @@ class CourseSeeder extends Seeder
                 'sort_order' => $index + 1,
             ]);
 
-            foreach ($qData['options'] as $optionIndex => [$isCorrect, $text]) {
+            foreach ($qData['options'] as $optionIndex => [$rawFlag, $text]) {
+                $isCorrect = $rawFlag === true;
+
                 QuizOption::create([
                     'quiz_question_id' => $question->id,
                     'option_text' => $text,
@@ -404,8 +406,8 @@ class CourseSeeder extends Seeder
         ]);
     }
 
-    private function correctText(string $text): string
+    private function correctText(string $text): bool
     {
-        return $text;
+        return true;
     }
 }

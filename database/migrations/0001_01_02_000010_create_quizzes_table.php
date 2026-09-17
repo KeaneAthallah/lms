@@ -22,10 +22,18 @@ return new class extends Migration
 
             $table->index('course_id');
         });
+
+        Schema::table('lessons', function (Blueprint $table) {
+            $table->foreign('quiz_id')->references('id')->on('quizzes')->nullOnDelete();
+        });
     }
 
     public function down(): void
     {
+        Schema::table('lessons', function (Blueprint $table) {
+            $table->dropForeign(['quiz_id']);
+        });
+
         Schema::dropIfExists('quizzes');
     }
 };

@@ -23,10 +23,18 @@ return new class extends Migration
 
             $table->index('course_id');
         });
+
+        Schema::table('lessons', function (Blueprint $table) {
+            $table->foreign('assignment_id')->references('id')->on('assignments')->nullOnDelete();
+        });
     }
 
     public function down(): void
     {
+        Schema::table('lessons', function (Blueprint $table) {
+            $table->dropForeign(['assignment_id']);
+        });
+
         Schema::dropIfExists('assignments');
     }
 };

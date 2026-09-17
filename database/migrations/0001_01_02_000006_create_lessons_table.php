@@ -12,8 +12,8 @@ return new class extends Migration
             $table->id();
             $table->foreignId('section_id')->constrained('course_sections')->cascadeOnDelete();
             $table->foreignId('course_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('quiz_id')->nullable()->constrained()->nullOnDelete();
-            $table->foreignId('assignment_id')->nullable()->constrained()->nullOnDelete();
+            $table->foreignId('quiz_id')->nullable();
+            $table->foreignId('assignment_id')->nullable();
             $table->string('title');
             $table->string('type')->default('text');
             $table->longText('content')->nullable();
