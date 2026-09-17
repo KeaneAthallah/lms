@@ -117,8 +117,9 @@ function Hero({ data, user, isAuthenticated, isStudent, isInstructor, isAdmin })
           : 'Pantau penyelenggaraan platform secara menyeluruh melalui dasbor administrasi.';
 
     return (
-        <section aria-labelledby="hero-heading" className="border-b border-slate-200 bg-white py-12 sm:py-16">
-            <div className="mx-auto grid max-w-7xl items-center gap-10 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <section aria-labelledby="hero-heading" className="py-2 sm:py-4">
+            <div className="mx-auto max-w-7xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-card sm:rounded-3xl">
+                <div className="grid items-center gap-10 px-6 py-12 sm:px-10 sm:py-16 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
                 <div>
                     <p className="flex items-center gap-2.5 text-eyebrow">
                         <Icon name="building" className="h-4 w-4" aria-hidden="true" />
@@ -126,7 +127,7 @@ function Hero({ data, user, isAuthenticated, isStudent, isInstructor, isAdmin })
                     </p>
                     <h1
                         id="hero-heading"
-                        className="mt-5 max-w-3xl text-3xl font-bold leading-tight tracking-tight text-slate-900 sm:text-4xl lg:text-[2.6rem]"
+                        className="mt-6 max-w-3xl text-3xl font-bold leading-tight tracking-tight text-slate-900 sm:text-4xl lg:text-[2.6rem]"
                     >
                         {isMember ? (
                             <>Selamat datang kembali, {firstName}.</>
@@ -134,13 +135,13 @@ function Hero({ data, user, isAuthenticated, isStudent, isInstructor, isAdmin })
                             'Pembelajaran Digital untuk Pengembangan Kompetensi'
                         )}
                     </h1>
-                    <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-600 sm:text-lg">
+                    <p className="mt-5 max-w-2xl text-base leading-relaxed text-slate-600 sm:text-lg">
                         {isMember
                             ? memberSub
                             : 'Akses pembelajaran yang terstruktur, materi digital, evaluasi, pemantauan kemajuan, dan sertifikasi dalam satu platform.'}
                     </p>
 
-                    <div className="mt-8 flex flex-wrap items-center gap-3">
+                    <div className="mt-10 flex flex-wrap items-center gap-3">
                         <ButtonLink to={primary.to} variant="primary" size="lg" icon={primary.icon}>
                             {primary.label}
                         </ButtonLink>
@@ -150,7 +151,7 @@ function Hero({ data, user, isAuthenticated, isStudent, isInstructor, isAdmin })
                     </div>
 
                     {!isMember ? (
-                        <p className="mt-5 text-sm text-slate-500">
+                        <p className="mt-6 text-sm text-slate-500">
                             Sudah memiliki akun?{' '}
                             <Link to="/login" className="font-semibold text-brand-700 underline underline-offset-4 hover:text-brand-800">
                                 Masuk
@@ -166,6 +167,7 @@ function Hero({ data, user, isAuthenticated, isStudent, isInstructor, isAdmin })
 
                 <div className={isMember ? 'hidden' : 'hidden lg:block'}>
                     <HeroVisual data={data} />
+                </div>
                 </div>
             </div>
         </section>

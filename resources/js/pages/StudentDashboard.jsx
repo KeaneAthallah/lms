@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api';
 import { useAuth } from '../auth';
-import { Badge, ButtonLink, DataTable, EmptyState, formatDate, Icon, PageHeader, PageLoader, ProgressBar, Section, StatCard } from '../components/ui';
+import { Badge, ButtonLink, DataTable, EmptyState, formatDate, Icon, PageLoader, ProgressBar, Section, StatCard } from '../components/ui';
 
 export default function StudentDashboard() {
     const { user } = useAuth();
@@ -60,11 +60,17 @@ export default function StudentDashboard() {
 
     return (
         <div className="space-y-8">
-            <PageHeader
-                icon="home"
-                title={`Welcome back, ${user?.name?.split(' ')[0] ?? 'Student'}`}
-                subtitle="Here's an overview of your learning progress."
-            />
+            <div className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white px-6 py-6 shadow-card sm:px-8 sm:py-7">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-brand-50 text-brand-600">
+                    <Icon name="home" className="h-6 w-6" />
+                </span>
+                <div className="min-w-0">
+                    <h1 className="truncate text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+                        Welcome back, {user?.name?.split(' ')[0] ?? 'Student'}
+                    </h1>
+                    <p className="mt-1 text-sm text-slate-500">Here&apos;s an overview of your learning progress.</p>
+                </div>
+            </div>
 
             <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
                 <StatCard label="Enrolled" value={data.stats.enrolled_courses} icon="book" tone="brand" />
