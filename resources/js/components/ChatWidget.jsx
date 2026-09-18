@@ -125,12 +125,12 @@ export default function ChatWidget() {
             <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
-                className="fixed bottom-4 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-brand-600 text-white shadow-lift transition hover:bg-brand-700"
+                className="fixed bottom-4 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-brand-600 text-white shadow-lift transition hover:bg-brand-700 dark:text-gray-50"
                 aria-label={open ? 'Close customer support chat' : 'Open customer support chat'}
             >
                 <Icon name={open ? 'x' : 'messageCircle'} className="h-6 w-6" strokeWidth={2} />
                 {!open && unreadTotal > 0 ? (
-                    <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white ring-2 ring-white">
+                    <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white ring-2 ring-white dark:text-gray-50">
                         {unreadTotal > 9 ? '9+' : unreadTotal}
                     </span>
                 ) : null}
@@ -140,9 +140,9 @@ export default function ChatWidget() {
                 <div
                     role="dialog"
                     aria-label="Customer support chat"
-                    className="fixed bottom-20 right-4 z-40 flex h-[30rem] w-[calc(100vw-2rem)] max-w-sm flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lift dark:border-slate-700 dark:bg-slate-900"
+                    className="fixed bottom-20 right-4 z-40 flex h-[30rem] w-[calc(100vw-2rem)] max-w-sm flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lift"
                 >
-                    <div className="flex items-center gap-3 border-b border-slate-200 bg-brand-600 px-4 py-3 text-white dark:border-slate-700">
+                    <div className="flex items-center gap-3 border-b border-slate-200 bg-brand-600 px-4 py-3 text-white dark:text-gray-50">
                         <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15">
                             <Icon name="messageCircle" className="h-5 w-5" />
                         </span>
@@ -164,18 +164,18 @@ export default function ChatWidget() {
                         <div className="flex flex-1 items-center justify-center text-sm text-slate-400">Loading…</div>
                     ) : view === 'thread' && active ? (
                         <>
-                            <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-2.5 dark:border-slate-700 dark:bg-slate-800">
+                            <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-2.5">
                                 <button
                                     type="button"
                                     onClick={() => setView('list')}
-                                    className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 dark:hover:bg-slate-700"
+                                    className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100"
                                     aria-label="Back to conversations"
                                 >
                                     <Icon name="arrowLeft" className="h-5 w-5" />
                                 </button>
                                 <Avatar src={active.agent?.avatar_url} name={active.agent?.name ?? 'CS'} size="h-8 w-8" />
                                 <div className="min-w-0 flex-1">
-                                    <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{active.subject}</p>
+                                    <p className="truncate text-sm font-semibold text-slate-900">{active.subject}</p>
                                     <p className="truncate text-xs text-slate-500">
                                         {active.agent ? active.agent.name : 'Awaiting an agent'}
                                     </p>
@@ -185,7 +185,7 @@ export default function ChatWidget() {
                             <div className="min-h-0 flex-1">
                                 <ChatThread messages={messages} user={user} onSend={sendMessage} />
                             </div>
-                            <div className="flex items-center justify-center gap-2 border-t border-slate-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-800">
+                            <div className="flex items-center justify-center gap-2 border-t border-slate-200 bg-white p-2">
                                 {active.status === 'open' ? (
                                     <Button variant="secondary" size="sm" icon="x" onClick={closeConversation}>
                                         Close conversation
@@ -199,16 +199,16 @@ export default function ChatWidget() {
                         </>
                     ) : view === 'compose' ? (
                         <>
-                            <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-2.5 dark:border-slate-700 dark:bg-slate-800">
+                            <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-2.5">
                                 <button
                                     type="button"
                                     onClick={() => setView('list')}
-                                    className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 dark:hover:bg-slate-700"
+                                    className="rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100"
                                     aria-label="Back"
                                 >
                                     <Icon name="arrowLeft" className="h-5 w-5" />
                                 </button>
-                                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">New conversation</p>
+                                <p className="text-sm font-semibold text-slate-900">New conversation</p>
                             </div>
                             <div className="flex-1 space-y-4 overflow-y-auto p-4 scrollbar-slim">
                                 <Field label="Subject" required>
@@ -219,7 +219,7 @@ export default function ChatWidget() {
                                 </Field>
                                 {composeError ? <p className="text-sm text-red-600">{composeError}</p> : null}
                             </div>
-                            <div className="border-t border-slate-200 p-3 dark:border-slate-700">
+                            <div className="border-t border-slate-200 p-3">
                                 <Button className="w-full" icon="plus" onClick={createConversation}>
                                     Open conversation
                                 </Button>
@@ -231,7 +231,7 @@ export default function ChatWidget() {
                                 {conversations.length === 0 ? (
                                     <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
                                         <Icon name="messageCircle" className="h-10 w-10 text-slate-300 dark:text-slate-600" />
-                                        <p className="text-sm font-medium text-slate-600 dark:text-slate-300">No conversations yet</p>
+                                        <p className="text-sm font-medium text-slate-600">No conversations yet</p>
                                         <p className="text-xs text-slate-400">Start a conversation and our team will help you out.</p>
                                     </div>
                                 ) : (
@@ -243,13 +243,13 @@ export default function ChatWidget() {
                                                 onClick={() => openConversation(conversation.id)}
                                                 className={cx(
                                                     'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition',
-                                                    'hover:bg-slate-50 dark:hover:bg-slate-800',
+                                                    'hover:bg-slate-50',
                                                 )}
                                             >
                                                 <Avatar src={conversation.agent?.avatar_url} name={conversation.agent?.name ?? 'CS'} size="h-9 w-9" />
                                                 <span className="min-w-0 flex-1">
                                                     <span className="flex items-center gap-2">
-                                                        <span className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                                        <span className="truncate text-sm font-semibold text-slate-900">
                                                             {conversation.subject}
                                                         </span>
                                                         {conversation.unread > 0 ? (
@@ -270,7 +270,7 @@ export default function ChatWidget() {
                                     </div>
                                 )}
                             </div>
-                            <div className="border-t border-slate-200 p-3 dark:border-slate-700">
+                            <div className="border-t border-slate-200 p-3">
                                 <Button className="w-full" icon="plus" onClick={() => setView('compose')}>
                                     New conversation
                                 </Button>

@@ -39,7 +39,7 @@ export default function ChatThread({ messages = [], user, onSend, placeholder = 
                                     <p className={cx('mb-0.5 text-xs font-semibold', mine ? 'text-brand-100' : 'text-brand-700')}>
                                         {mine ? 'You' : message.sender?.name ?? 'Agent'}
                                     </p>
-                                    <p className={cx('whitespace-pre-wrap text-sm leading-relaxed', mine ? 'text-white' : 'text-slate-700 dark:text-slate-200')}>
+                                    <p className={cx('whitespace-pre-wrap text-sm leading-relaxed', mine ? 'text-white dark:text-gray-50' : 'text-slate-700 dark:text-slate-200')}>
                                         {message.body}
                                     </p>
                                     <p className={cx('mt-1 text-[10px]', mine ? 'text-brand-100/90' : 'text-slate-400')}>{formatDateTime(message.created_at)}</p>
