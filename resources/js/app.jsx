@@ -24,6 +24,8 @@ import Certificates from './pages/Certificates';
 import Notifications from './pages/Notifications';
 import Profile from './pages/Profile';
 import VerifyCertificate from './pages/VerifyCertificate';
+import Support from './pages/Support';
+import AgentInbox from './pages/support/AgentInbox';
 import InstructorDashboard from './pages/instructor/InstructorDashboard';
 import InstructorCourses from './pages/instructor/InstructorCourses';
 import InstructorCourseBuilder from './pages/instructor/InstructorCourseBuilder';
@@ -101,6 +103,11 @@ createRoot(document.getElementById('app')).render(
                         element={<ProtectedRoute>{inLayout(<Notifications />)}</ProtectedRoute>}
                     />
                     <Route path="/profile" element={<ProtectedRoute>{inLayout(<Profile />)}</ProtectedRoute>} />
+                    <Route path="/support" element={<ProtectedRoute>{inLayout(<Support />)}</ProtectedRoute>} />
+                    <Route
+                        path="/support/inbox"
+                        element={<ProtectedRoute roles={['customer_service', 'admin']}>{inLayout(<AgentInbox />)}</ProtectedRoute>}
+                    />
 
                     <Route
                         path="/instructor/dashboard"

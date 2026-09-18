@@ -20,6 +20,20 @@ class UserSeeder extends Seeder
         $admin->syncRoles([Role::ADMIN]);
         $this->withAvatar($admin);
 
+        $agents = [
+            ['mia@example.com', 'Mia Torres'],
+            ['noah@example.com', 'Noah Kim'],
+        ];
+
+        foreach ($agents as [$email, $name]) {
+            $user = User::updateOrCreate(
+                ['email' => $email],
+                ['name' => $name, 'password' => 'password', 'is_active' => true],
+            );
+            $user->syncRoles([Role::CUSTOMER_SERVICE]);
+            $this->withAvatar($user);
+        }
+
         $instructors = [
             ['sarah@example.com', 'Sarah Mitchell', 'Frontend Engineer & Laravel enthusiast', 'I have been building web applications for over a decade and love teaching others to build for the web.'],
             ['rachel@example.com', 'Rachel Chen', 'Product Designer', 'Designer focused on accessible, delightful user experiences. Every interface should tell a story.'],

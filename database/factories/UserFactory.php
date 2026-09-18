@@ -58,4 +58,9 @@ class UserFactory extends Factory
     {
         return $this->afterCreating(fn (User $user) => $user->assignRole(Role::Student));
     }
+
+    public function customerService(): static
+    {
+        return $this->afterCreating(fn (User $user) => $user->assignRole(Role::CustomerService));
+    }
 }

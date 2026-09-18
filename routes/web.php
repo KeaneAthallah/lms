@@ -13,6 +13,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CertificateController;
 use App\Http\Controllers\CertificateVerifyController;
 use App\Http\Controllers\ChallengeController;
+use App\Http\Controllers\ChatController;
 use App\Http\Controllers\CourseController;
 use App\Http\Controllers\CourseRoadmapController;
 use App\Http\Controllers\DashboardController;
@@ -107,6 +108,13 @@ Route::prefix('api')->group(function (): void {
         Route::get('/certificates', [CertificateController::class, 'index']);
         Route::get('/certificates/{certificate}', [CertificateController::class, 'show']);
 
+        Route::get('/support/conversations', [ChatController::class, 'conversations']);
+        Route::post('/support/conversations', [ChatController::class, 'store']);
+        Route::get('/support/conversations/{conversation}', [ChatController::class, 'show']);
+        Route::post('/support/conversations/{conversation}/messages', [ChatController::class, 'storeMessage']);
+        Route::put('/support/conversations/{conversation}/close', [ChatController::class, 'close']);
+        Route::put('/support/conversations/{conversation}/reopen', [ChatController::class, 'reopen']);
+
         Route::get('/notifications', [NotificationController::class, 'index']);
         Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
         Route::post('/notifications/{notification}/read', [NotificationController::class, 'markRead']);
@@ -157,6 +165,11 @@ Route::prefix('api')->middleware(['auth', 'role:instructor'])->group(function ()
 
     Route::get('/instructor/courses/{course:slug}/analytics', [InstructorAnalyticsController::class, 'show']);
     Route::get('/instructor/courses/{course:slug}/radar', [InstructorRadarController::class, 'show']);
+});
+
+Route::prefix('api')->middleware(['auth', 'role:customer_service'])->group(function (): void {
+    Route::get('/support/agent/conversations', [ChatController::class, 'agentIndex']);
+    Route::put('/support/conversations/{conversation}/assign', [ChatController::class, 'assign']);
 });
 
 Route::prefix('api')->middleware(['auth', 'role:admin'])->group(function (): void {

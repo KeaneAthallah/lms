@@ -22,6 +22,8 @@ class Role extends Model
 
     public const STUDENT = 'student';
 
+    public const CUSTOMER_SERVICE = 'customer_service';
+
     protected $fillable = ['name', 'label'];
 
     public function permissions(): BelongsToMany

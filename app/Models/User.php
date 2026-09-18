@@ -97,4 +97,9 @@ class User extends Authenticatable
     {
         return $this->hasRole(Role::Student);
     }
+
+    public function isCustomerService(): bool
+    {
+        return $this->hasRole(Role::CustomerService);
+    }
 }

@@ -281,7 +281,7 @@ function SidebarSection({ label, items }) {
     );
 }
 
-function buildGroups({ user, isStudent, isInstructor, isAdmin }) {
+function buildGroups({ user, isStudent, isInstructor, isAdmin, isCustomerService }) {
     return [
         {
             label: 'Learning',
@@ -335,13 +335,27 @@ function buildGroups({ user, isStudent, isInstructor, isAdmin }) {
         },
         {
             label: 'Account',
-            items: user ? [{ to: '/profile', label: 'Profile & settings', icon: 'user', end: true }] : [],
+            items: user
+                ? [
+                      { to: '/profile', label: 'Profile & settings', icon: 'user', end: true },
+                      { to: '/support', label: 'Support', icon: 'messageCircle', end: true },
+                  ]
+                : [],
+        },
+        {
+            label: 'Customer service',
+            items:
+                isCustomerService || isAdmin
+                    ? [
+                          { to: '/support/inbox', label: 'Chat inbox', icon: 'messageCircle', end: true },
+                      ]
+                    : [],
         },
     ];
 }
 
-function SidebarContent({ user, isStudent, isInstructor, isAdmin, onNavigate }) {
-    const groups = buildGroups({ user, isStudent, isInstructor, isAdmin });
+function SidebarContent({ user, isStudent, isInstructor, isAdmin, isCustomerService, onNavigate }) {
+    const groups = buildGroups({ user, isStudent, isInstructor, isAdmin, isCustomerService });
 
     return (
         <div className="flex h-full flex-col">
@@ -574,7 +588,8 @@ function currentLabel(pathname, groups) {
 }
 
 export default function Layout({ children }) {
-    const { user, isInstructor, isAdmin, isStudent } = useAuth();
+    const { user, isInstructor, isAdmin, isStudent, hasRole } = useAuth();
+    const isCustomerService = hasRole('customer_service');
     const [mobileOpen, setMobileOpen] = useState(false);
     const location = useLocation();
     const drawerCloseRef = useRef(null);
@@ -616,7 +631,7 @@ export default function Layout({ children }) {
         };
     }, [mobileOpen]);
 
-    const groups = buildGroups({ user, isStudent, isInstructor, isAdmin });
+    const groups = buildGroups({ user, isStudent, isInstructor, isAdmin, isCustomerService });
     const label = useMemo(() => currentLabel(location.pathname, groups), [location.pathname, groups]);
 
     if (!user) {
@@ -638,7 +653,7 @@ export default function Layout({ children }) {
                 Lewati ke konten
             </a>
             <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-slate-200 bg-white lg:block">
-                <SidebarContent user={user} isStudent={isStudent} isInstructor={isInstructor} isAdmin={isAdmin} />
+                <SidebarContent user={user} isStudent={isStudent} isInstructor={isInstructor} isAdmin={isAdmin} isCustomerService={isCustomerService} />
             </aside>
 
             {mobileOpen ? (
@@ -662,6 +677,7 @@ export default function Layout({ children }) {
                             isStudent={isStudent}
                             isInstructor={isInstructor}
                             isAdmin={isAdmin}
+                            isCustomerService={isCustomerService}
                             onNavigate={() => setMobileOpen(false)}
                         />
                     </aside>

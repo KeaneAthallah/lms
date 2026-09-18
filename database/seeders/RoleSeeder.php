@@ -29,9 +29,11 @@ class RoleSeeder extends Seeder
         $admin = Role::updateOrCreate(['name' => 'admin'], ['label' => 'Administrator']);
         $instructor = Role::updateOrCreate(['name' => 'instructor'], ['label' => 'Instructor']);
         $student = Role::updateOrCreate(['name' => 'student'], ['label' => 'Student']);
+        $customerService = Role::updateOrCreate(['name' => 'customer_service'], ['label' => 'Customer Service']);
 
         $admin->permissions()->sync(Permission::pluck('id'));
         $instructor->permissions()->sync([]);
         $student->permissions()->sync([]);
+        $customerService->permissions()->sync([]);
     }
 }
