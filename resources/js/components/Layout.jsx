@@ -4,6 +4,7 @@ import api from '../api';
 import { useAuth } from '../auth';
 import { useTheme } from '../theme';
 import { Avatar, Badge, cx, Icon } from './ui';
+import ChatWidget from './ChatWidget';
 import FooterSection from './FooterSection';
 
 function Brand({ className, subtitle }) {
@@ -338,7 +339,6 @@ function buildGroups({ user, isStudent, isInstructor, isAdmin, isCustomerService
             items: user
                 ? [
                       { to: '/profile', label: 'Profile & settings', icon: 'user', end: true },
-                      { to: '/support', label: 'Support', icon: 'messageCircle', end: true },
                   ]
                 : [],
         },
@@ -709,6 +709,8 @@ export default function Layout({ children }) {
 
                 <FooterSection />
             </div>
+
+            {!isCustomerService && !isAdmin ? <ChatWidget /> : null}
         </div>
     );
 }
