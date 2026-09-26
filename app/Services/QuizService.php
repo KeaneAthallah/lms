@@ -11,13 +11,16 @@ use App\Models\QuizQuestion;
 use App\Models\User;
 use App\Notifications\QuizResult;
 use App\QuizAttemptStatus;
-use App\QuizQuestionType;
+use App\Support\Grading\GraderRegistry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class QuizService
 {
-    public function __construct(protected ProgressService $progress) {}
+    public function __construct(
+        protected ProgressService $progress,
+        protected GraderRegistry $graders,
+    ) {}
 
     public function canStart(Quiz $quiz, User $student): bool
     {
@@ -49,7 +52,9 @@ class QuizService
                 'started_at' => now(),
             ]);
 
-            $this->progress->markStarted($quiz->lesson, $student);
+            if ($quiz->lesson) {
+                $this->progress->markStarted($quiz->lesson, $student);
+            }
 
             return $attempt;
         });
@@ -163,50 +168,11 @@ class QuizService
 
     private function gradeQuestion(QuizQuestion $question, mixed $submitted): float
     {
-        if ($submitted === null || $submitted === '') {
-            return 0.0;
-        }
-
-        return match ($question->type) {
-            QuizQuestionType::ShortAnswer => $this->gradeShortAnswer($question, $submitted),
-            default => $this->gradeChoice($question, $submitted),
-        };
-    }
-
-    private function gradeChoice(QuizQuestion $question, mixed $submitted): float
-    {
-        $correct = $question->options->firstWhere('is_correct', true);
-
-        if (! $correct) {
-            return 0.0;
-        }
-
-        $chosen = (int) $submitted;
-
-        return $correct->id === $chosen ? (float) $question->points : 0.0;
-    }
-
-    private function gradeShortAnswer(QuizQuestion $question, mixed $submitted): float
-    {
-        $correct = $question->options->firstWhere('is_correct', true);
-
-        if (! $correct) {
-            return 0.0;
-        }
-
-        $normalize = fn (string $value): string => strtolower(trim((string) $value));
-
-        return $normalize((string) $submitted) === $normalize($correct->option_text)
-            ? (float) $question->points
-            : 0.0;
+        return $this->graders->for($question->type)->grade($question, $submitted);
     }
 
     private function serializeAnswer(QuizQuestion $question, mixed $submitted): string
     {
-        if ($question->type === QuizQuestionType::ShortAnswer) {
-            return (string) $submitted;
-        }
-
-        return (string) ((int) $submitted);
+        return $this->graders->for($question->type)->serialize($submitted);
     }
 }
