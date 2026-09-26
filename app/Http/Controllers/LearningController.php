@@ -7,10 +7,14 @@ use App\Http\Resources\LessonResource;
 use App\Models\Course;
 use App\Models\Lesson;
 use App\Services\ProgressService;
+use App\Support\CourseAccess;
 
 class LearningController extends Controller
 {
-    public function __construct(protected ProgressService $progress) {}
+    public function __construct(
+        protected ProgressService $progress,
+        protected CourseAccess $access,
+    ) {}
 
     /**
      * Return the full curriculum for an enrolled student or course owner.
@@ -61,6 +65,11 @@ class LearningController extends Controller
         $this->authorize('learn', $course);
 
         abort_unless((int) $lesson->course_id === (int) $course->id, 404);
+
+        // The route binds any lesson id, and a course can be learned while it
+        // still has unpublished lessons. Answer 404 — not 403 — so an enrolled
+        // student cannot enumerate unpublished content by walking ids.
+        abort_unless($this->access->canViewLessonContent($user, $lesson), 404);
 
         $lesson->load(['materials', 'quiz' => fn ($q) => $q->withCount('questions'), 'assignment.submissions' => fn ($q) => $q->where('student_id', $user->id)])
             ->load(['progress' => fn ($q) => $q->where('student_id', $user->id)]);

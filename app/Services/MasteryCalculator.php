@@ -199,7 +199,10 @@ class MasteryCalculator
                 'course' => fn ($query) => $query->with([
                     'sections' => fn ($query) => $query->orderBy('sort_order')->with([
                         'lessons' => fn ($query) => $query->published()->orderBy('sort_order')->with([
-                            'quiz:id,course_id,title',
+                            // `time_limit_minutes` is read to estimate how long an
+                            // upcoming quiz takes; starving the select made the same
+                            // quiz report different durations on different endpoints.
+                            'quiz:id,course_id,title,time_limit_minutes',
                             'progress' => fn ($query) => $query->where('student_id', $student->id),
                         ]),
                     ]),
@@ -218,7 +221,10 @@ class MasteryCalculator
             ->where('student_id', $student->id)
             ->whereNotNull('submitted_at')
             ->orderByDesc('submitted_at')
-            ->get(['id', 'quiz_id', 'score_percentage', 'submitted_at'])
+            // `passed` is consumed by LearningMapService to decide which quizzes to
+            // skip; omitting it silently made that guard dead code. `status` keeps
+            // the completed/expired distinction available to callers.
+            ->get(['id', 'quiz_id', 'score_percentage', 'passed', 'status', 'submitted_at'])
             ->groupBy('quiz_id');
     }
 

@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Role;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -29,9 +30,13 @@ class AuthController extends Controller
     {
         $credentials = $request->safe()->only(['email', 'password']);
 
+        // A single message covers both failure modes. Telling a caller that the
+        // address exists but the account is disabled is user enumeration.
         if (! Auth::attempt($credentials, true)) {
+            $this->logFailedLogin($request);
+
             throw ValidationException::withMessages([
-                'email' => ['These credentials do not match our records.'],
+                'email' => [LoginRequest::INVALID_CREDENTIALS],
             ]);
         }
 
@@ -39,14 +44,31 @@ class AuthController extends Controller
 
         if (! $user->is_active) {
             Auth::logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            $this->logFailedLogin($request);
+
             throw ValidationException::withMessages([
-                'email' => ['Your account has been disabled. Please contact support.'],
+                'email' => [LoginRequest::INVALID_CREDENTIALS],
             ]);
         }
 
         $request->session()->regenerate();
 
         return new UserResource($user->load('roles'));
+    }
+
+    /**
+     * Failed sign-ins are only interesting to the operator, never to the caller.
+     */
+    private function logFailedLogin(LoginRequest $request): void
+    {
+        Log::warning('Failed sign-in attempt.', [
+            'email' => $request->string('email')->toString(),
+            'ip' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+        ]);
     }
 
     public function logout(Request $request)

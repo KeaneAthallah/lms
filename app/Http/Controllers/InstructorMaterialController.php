@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\Lesson\UploadLessonMaterialRequest;
 use App\Models\Course;
 use App\Models\Lesson;
 use App\Models\LessonMaterial;
@@ -10,15 +11,12 @@ use Illuminate\Support\Facades\Storage;
 
 class InstructorMaterialController extends Controller
 {
-    public function store(Request $request, Course $course, Lesson $lesson)
+    public function store(UploadLessonMaterialRequest $request, Course $course, Lesson $lesson)
     {
         $this->authorize('manage', $course);
         abort_unless((int) $lesson->course_id === (int) $course->id, 404);
 
-        $data = $request->validate([
-            'file' => ['required', 'file', 'max:102400'],
-            'is_downloadable' => ['boolean'],
-        ]);
+        $data = $request->safe()->only('is_downloadable');
 
         $file = $request->file('file');
         $path = $file->store('lessons/materials/'.$lesson->id, 'local');

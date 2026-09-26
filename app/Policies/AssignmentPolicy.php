@@ -3,29 +3,21 @@
 namespace App\Policies;
 
 use App\Models\Assignment;
-use App\Models\Enrollment;
 use App\Models\User;
+use App\Support\CourseAccess;
 
 class AssignmentPolicy
 {
+    public function __construct(protected CourseAccess $access) {}
+
     public function view(User $user, Assignment $assignment): bool
     {
-        if ($assignment->course->isOwnedBy($user)) {
-            return true;
-        }
-
-        return Enrollment::where('student_id', $user->id)
-            ->where('course_id', $assignment->course_id)
-            ->where('status', '!=', 'cancelled')
-            ->exists();
+        return $this->access->canLearn($user, $assignment->course);
     }
 
     public function submit(User $user, Assignment $assignment): bool
     {
-        return Enrollment::where('student_id', $user->id)
-            ->where('course_id', $assignment->course_id)
-            ->where('status', '!=', 'cancelled')
-            ->exists();
+        return $this->access->canAttemptAssessment($user, $assignment->course);
     }
 
     public function grade(User $user, Assignment $assignment): bool

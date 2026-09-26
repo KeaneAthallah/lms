@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Notifications\QuizResult;
 use App\QuizAttemptStatus;
 use App\QuizQuestionType;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class QuizService
@@ -29,22 +30,29 @@ class QuizService
 
     public function start(Quiz $quiz, User $student): QuizAttempt
     {
-        if (! $this->canStart($quiz, $student)) {
-            throw ValidationException::withMessages([
-                'attempts' => ['You have used all of your allowed attempts for this quiz.'],
+        // The attempt limit is a check-then-insert, so the quiz row is locked for
+        // the duration. Without the lock two clicks (or two tabs) both read
+        // "one attempt used" and both insert, exceeding `attempts_allowed`.
+        return DB::transaction(function () use ($quiz, $student): QuizAttempt {
+            Quiz::whereKey($quiz->id)->lockForUpdate()->first();
+
+            if (! $this->canStart($quiz, $student)) {
+                throw ValidationException::withMessages([
+                    'attempts' => ['You have used all of your allowed attempts for this quiz.'],
+                ]);
+            }
+
+            $attempt = QuizAttempt::create([
+                'quiz_id' => $quiz->id,
+                'student_id' => $student->id,
+                'status' => QuizAttemptStatus::InProgress,
+                'started_at' => now(),
             ]);
-        }
 
-        $attempt = QuizAttempt::create([
-            'quiz_id' => $quiz->id,
-            'student_id' => $student->id,
-            'status' => QuizAttemptStatus::InProgress,
-            'started_at' => now(),
-        ]);
+            $this->progress->markStarted($quiz->lesson, $student);
 
-        $this->progress->markStarted($quiz->lesson, $student);
-
-        return $attempt;
+            return $attempt;
+        });
     }
 
     /**
@@ -54,83 +62,92 @@ class QuizService
      */
     public function submit(QuizAttempt $attempt, array $submission): QuizAttempt
     {
-        $quiz = $attempt->quiz;
-        $questions = $quiz->questions()->with('options')->get();
+        // Grading is a read-then-write over the attempt, its answers, the grade
+        // ledger and lesson progress. Locking the attempt row makes the
+        // `isCompleted()` guard atomic, so a double submit cannot write a second
+        // set of answers, re-notify the student, or complete the lesson twice.
+        return DB::transaction(function () use ($attempt, $submission): QuizAttempt {
+            $attempt = QuizAttempt::whereKey($attempt->getKey())
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        if ($attempt->isCompleted()) {
-            throw ValidationException::withMessages([
-                'attempt' => ['This attempt has already been submitted.'],
+            $quiz = $attempt->quiz;
+            $questions = $quiz->questions()->with('options')->get();
+
+            if ($attempt->isCompleted()) {
+                throw ValidationException::withMessages([
+                    'attempt' => ['This attempt has already been submitted.'],
+                ]);
+            }
+
+            if ($this->hasExpired($attempt, $quiz)) {
+                $attempt->update(['status' => QuizAttemptStatus::Expired->value]);
+
+                throw ValidationException::withMessages([
+                    'attempt' => ['The time limit for this quiz has expired.'],
+                ]);
+            }
+
+            $answersByQuestion = collect($submission['questions'] ?? [])
+                ->keyBy(fn (array $item): int => (int) ($item['question_id'] ?? 0));
+
+            $totalEarned = 0.0;
+            $totalPossible = 0.0;
+
+            foreach ($questions as $question) {
+                $submitted = $answersByQuestion->get($question->id)['answer'] ?? null;
+                $earned = $this->gradeQuestion($question, $submitted);
+
+                $totalEarned += $earned;
+                $totalPossible += (float) $question->points;
+
+                QuizAnswer::updateOrCreate(
+                    ['quiz_attempt_id' => $attempt->id, 'quiz_question_id' => $question->id],
+                    [
+                        'answer' => $this->serializeAnswer($question, $submitted),
+                        'is_correct' => $earned > 0,
+                        'points_earned' => $earned,
+                    ],
+                );
+            }
+
+            $percentage = $totalPossible > 0 ? round(($totalEarned / $totalPossible) * 100, 2) : 0.0;
+            $passed = $percentage >= (float) $quiz->passing_score;
+
+            $attempt->update([
+                'status' => QuizAttemptStatus::Completed->value,
+                'submitted_at' => now(),
+                'score' => round($totalEarned, 2),
+                'score_percentage' => $percentage,
+                'passed' => $passed,
             ]);
-        }
 
-        if ($this->hasExpired($attempt, $quiz)) {
-            $attempt->update(['status' => QuizAttemptStatus::Expired->value]);
-            $attempt->refresh();
-
-            throw ValidationException::withMessages([
-                'attempt' => ['The time limit for this quiz has expired.'],
-            ]);
-        }
-
-        $answersByQuestion = collect($submission['questions'] ?? [])
-            ->keyBy(fn (array $item): int => (int) ($item['question_id'] ?? 0));
-
-        $totalEarned = 0.0;
-        $totalPossible = 0.0;
-
-        foreach ($questions as $question) {
-            $submitted = $answersByQuestion->get($question->id)['answer'] ?? null;
-            $earned = $this->gradeQuestion($question, $submitted);
-
-            $totalEarned += $earned;
-            $totalPossible += (float) $question->points;
-
-            QuizAnswer::updateOrCreate(
-                ['quiz_attempt_id' => $attempt->id, 'quiz_question_id' => $question->id],
+            // Record in the unified grade ledger (unique per source).
+            Grade::updateOrCreate(
+                ['source_type' => QuizAttempt::class, 'source_id' => $attempt->id],
                 [
-                    'answer' => $this->serializeAnswer($question, $submitted),
-                    'is_correct' => $earned > 0,
-                    'points_earned' => $earned,
+                    'student_id' => $attempt->student_id,
+                    'course_id' => $quiz->course_id,
+                    'type' => 'quiz',
+                    'score' => round($totalEarned, 2),
+                    'max_score' => round($totalPossible, 2),
+                    'percentage' => $percentage,
+                    'graded_at' => now(),
                 ],
             );
-        }
 
-        $percentage = $totalPossible > 0 ? round(($totalEarned / $totalPossible) * 100, 2) : 0.0;
-        $passed = $percentage >= (float) $quiz->passing_score;
+            $student = $attempt->student;
+            $student->notify(new QuizResult($attempt));
 
-        $attempt->update([
-            'status' => QuizAttemptStatus::Completed->value,
-            'submitted_at' => now(),
-            'score' => round($totalEarned, 2),
-            'score_percentage' => $percentage,
-            'passed' => $passed,
-        ]);
-
-        // Record in the unified grade ledger (unique per source).
-        Grade::updateOrCreate(
-            ['source_type' => QuizAttempt::class, 'source_id' => $attempt->id],
-            [
-                'student_id' => $attempt->student_id,
-                'course_id' => $quiz->course_id,
-                'type' => 'quiz',
-                'score' => round($totalEarned, 2),
-                'max_score' => round($totalPossible, 2),
-                'percentage' => $percentage,
-                'graded_at' => now(),
-            ],
-        );
-
-        $student = $attempt->student;
-        $student->notify(new QuizResult($attempt));
-
-        if ($passed) {
-            $lesson = Lesson::where('quiz_id', $quiz->id)->first();
-            if ($lesson) {
-                $this->progress->completeLesson($lesson, $student);
+            if ($passed) {
+                $lesson = Lesson::where('quiz_id', $quiz->id)->first();
+                if ($lesson) {
+                    $this->progress->completeLesson($lesson, $student);
+                }
             }
-        }
 
-        return $attempt->refresh()->load(['answers', 'quiz.questions.options']);
+            return $attempt->refresh()->load(['answers', 'quiz.questions.options']);
+        });
     }
 
     public function hasExpired(QuizAttempt $attempt, ?Quiz $quiz = null): bool

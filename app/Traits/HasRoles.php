@@ -53,6 +53,13 @@ trait HasRoles
             ? $role->value
             : ($role instanceof Role ? $role->name : $role);
 
+        // Use an already-loaded relation when there is one. `isAdmin()` runs in
+        // `Gate::before`, in every `role:` middleware hit and in most policies,
+        // so an unguarded check here costs one query each time.
+        if ($this->relationLoaded('roles')) {
+            return $this->roles->contains(fn (Role $assigned): bool => $assigned->name === $name);
+        }
+
         return $this->roles()->where('name', $name)->exists();
     }
 
@@ -61,6 +68,12 @@ trait HasRoles
         $names = array_map(fn ($role): string => $role instanceof \App\Role
             ? $role->value
             : ($role instanceof Role ? $role->name : $role), $roles);
+
+        if ($this->relationLoaded('roles')) {
+            return $this->roles->contains(
+                fn (Role $assigned): bool => in_array($assigned->name, $names, true),
+            );
+        }
 
         return $this->roles()->whereIn('name', $names)->exists();
     }
@@ -113,23 +126,30 @@ trait HasRoles
     {
         $name = $permission instanceof Permission ? $permission->name : $permission;
 
-        $roleNames = $this->roles()->pluck('roles.name');
+        if ($this->relationLoaded('permissions')) {
+            if ($this->permissions->contains(fn (Permission $direct): bool => $direct->name === $name)) {
+                return true;
+            }
+        } elseif ($this->permissions()->where('name', $name)->exists()) {
+            return true;
+        }
 
-        $viaRoles = Role::whereIn('name', $roleNames)
-            ->whereHas('permissions', fn ($query) => $query->where('name', $name))
+        if ($this->relationLoaded('roles')) {
+            return $this->roles->contains(
+                fn (Role $role): bool => $role->relationLoaded('permissions')
+                    && $role->permissions->contains(fn (Permission $granted): bool => $granted->name === $name),
+            );
+        }
+
+        return Role::whereHas('permissions', fn ($query) => $query->where('name', $name))
+            ->whereIn('id', $this->roles()->select('roles.id'))
             ->exists();
-
-        return $viaRoles || $this->permissions()->where('name', $name)->exists();
     }
 
     public function hasAnyPermission(array $permissions): bool
     {
-        $names = array_map(fn (string|Permission $permission): string => $permission instanceof Permission
-            ? $permission->name
-            : $permission, $permissions);
-
-        foreach ($names as $name) {
-            if ($this->hasPermission($name)) {
+        foreach ($permissions as $permission) {
+            if ($this->hasPermission($permission)) {
                 return true;
             }
         }

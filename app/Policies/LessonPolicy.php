@@ -2,22 +2,25 @@
 
 namespace App\Policies;
 
-use App\Models\Enrollment;
 use App\Models\Lesson;
 use App\Models\User;
+use App\Support\CourseAccess;
 
 class LessonPolicy
 {
+    public function __construct(protected CourseAccess $access) {}
+
     public function view(User $user, Lesson $lesson): bool
     {
-        if ($lesson->course->isOwnedBy($user)) {
-            return true;
-        }
+        return $this->access->canLearn($user, $lesson->course);
+    }
 
-        return Enrollment::where('student_id', $user->id)
-            ->where('course_id', $lesson->course_id)
-            ->where('status', '!=', 'cancelled')
-            ->exists();
+    /**
+     * May the user read this lesson's body and media?
+     */
+    public function viewContent(User $user, Lesson $lesson): bool
+    {
+        return $this->access->canViewLessonContent($user, $lesson);
     }
 
     public function update(User $user, Lesson $lesson): bool

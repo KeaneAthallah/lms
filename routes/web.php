@@ -19,6 +19,7 @@ use App\Http\Controllers\CourseRoadmapController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EnrollmentController;
 use App\Http\Controllers\GradeController;
+use App\Http\Controllers\HealthController;
 use App\Http\Controllers\InstructorAnalyticsController;
 use App\Http\Controllers\InstructorAssignmentController;
 use App\Http\Controllers\InstructorCourseController;
@@ -34,6 +35,7 @@ use App\Http\Controllers\LearningController;
 use App\Http\Controllers\LearningInsightsController;
 use App\Http\Controllers\LearningMapController;
 use App\Http\Controllers\LessonProgressController;
+use App\Http\Controllers\LessonVideoController;
 use App\Http\Controllers\MaterialController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PortfolioController;
@@ -61,14 +63,19 @@ Route::get('/certificates/{identifier}', [CertificateVerifyController::class, 's
     ->name('certificates.show');
 
 Route::middleware('guest')->group(function (): void {
-    Route::post('/api/register', [AuthController::class, 'register']);
-    Route::post('/api/login', [AuthController::class, 'login']);
+    Route::post('/api/register', [AuthController::class, 'register'])
+        ->middleware('throttle:5,1');
+    Route::post('/api/login', [AuthController::class, 'login'])
+        ->middleware('throttle:6,1');
 });
 
 Route::post('/api/logout', [AuthController::class, 'logout'])->middleware('auth');
 Route::get('/api/me', [AuthController::class, 'me'])->middleware('auth');
 
 Route::prefix('api')->group(function (): void {
+    // Unauthenticated liveness probe for load balancers and uptime checks.
+    Route::get('/health', HealthController::class)->name('health');
+
     Route::get('/courses', [CourseController::class, 'index']);
     Route::get('/courses/categories', [CourseController::class, 'categories']);
     Route::get('/courses/{course:slug}', [CourseController::class, 'show'])
@@ -87,6 +94,8 @@ Route::prefix('api')->group(function (): void {
         Route::post('/courses/{course:slug}/enroll', [EnrollmentController::class, 'store']);
         Route::get('/courses/{course:slug}/learn', [LearningController::class, 'show']);
         Route::get('/courses/{course:slug}/learn/{lesson}', [LearningController::class, 'showLesson']);
+        Route::get('/lessons/{lesson}/video', [LessonVideoController::class, 'show'])
+            ->name('lessons.video');
         Route::patch('/lessons/{lesson}/progress', [LessonProgressController::class, 'update']);
         Route::get('/lessons/{lesson}/materials/{material}/download', [MaterialController::class, 'download']);
 

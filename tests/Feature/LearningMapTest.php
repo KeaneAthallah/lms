@@ -168,4 +168,58 @@ class LearningMapTest extends TestCase
     {
         $this->getJson('/api/learning-map')->assertStatus(401);
     }
+
+    public function test_a_passed_quiz_is_not_offered_again_as_upcoming(): void
+    {
+        $student = User::factory()->student()->create();
+
+        [$course, $section, $lessons, $quiz] = $this->makeCourseWithQuiz(1);
+
+        $this->enroll($student, $course);
+
+        // `loadQuizAttempts` used to omit `passed` from its column list, so the
+        // "skip quizzes already passed" guard in LearningMapService was dead code
+        // and a passed quiz kept being surfaced as the next thing to do.
+        QuizAttempt::create([
+            'quiz_id' => $quiz->id,
+            'student_id' => $student->id,
+            'status' => 'completed',
+            'score' => 10,
+            'score_percentage' => 100,
+            'passed' => true,
+            'started_at' => now()->subHour(),
+            'submitted_at' => now()->subMinutes(30),
+        ]);
+
+        $this->actingAs($student)
+            ->getJson('/api/learning-map')
+            ->assertOk()
+            ->assertJsonPath('data.courses.0.upcoming_quiz', null);
+    }
+
+    public function test_a_failed_quiz_is_still_offered_as_upcoming(): void
+    {
+        $student = User::factory()->student()->create();
+
+        [$course, $section, $lessons, $quiz] = $this->makeCourseWithQuiz(1);
+
+        $this->enroll($student, $course);
+
+        QuizAttempt::create([
+            'quiz_id' => $quiz->id,
+            'student_id' => $student->id,
+            'status' => 'completed',
+            'score' => 2,
+            'score_percentage' => 20,
+            'passed' => false,
+            'started_at' => now()->subHour(),
+            'submitted_at' => now()->subMinutes(30),
+        ]);
+
+        $this->actingAs($student)
+            ->getJson('/api/learning-map')
+            ->assertOk()
+            ->assertJsonPath('data.courses.0.upcoming_quiz.quiz.id', $quiz->id)
+            ->assertJsonPath('data.courses.0.upcoming_quiz.state', 'ready');
+    }
 }

@@ -24,6 +24,7 @@ class Lesson extends Model
         'type',
         'content',
         'video_path',
+        'video_disk',
         'video_url',
         'external_url',
         'duration_seconds',

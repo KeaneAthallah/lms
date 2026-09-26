@@ -3,11 +3,13 @@
 namespace App\Policies;
 
 use App\Models\Course;
-use App\Models\Enrollment;
 use App\Models\User;
+use App\Support\CourseAccess;
 
 class CoursePolicy
 {
+    public function __construct(protected CourseAccess $access) {}
+
     public function view(?User $user, Course $course): bool
     {
         if ($course->isPublished()) {
@@ -53,11 +55,7 @@ class CoursePolicy
 
     public function learn(User $user, Course $course): bool
     {
-        return $user->isAdmin() || $course->isOwnedBy($user)
-            || Enrollment::where('student_id', $user->id)
-                ->where('course_id', $course->id)
-                ->where('status', '!=', 'cancelled')
-                ->exists();
+        return $this->access->canLearn($user, $course);
     }
 
     public function manageStudents(User $user, Course $course): bool

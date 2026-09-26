@@ -2,16 +2,14 @@
 
 namespace App\Http\Requests\Lesson;
 
+use App\Http\Requests\Concerns\AuthorizesContentAuthors;
 use App\LessonType;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class UpdateLessonRequest extends FormRequest
 {
-    public function authorize(): bool
-    {
-        return $this->user() !== null && $this->user()->isInstructor();
-    }
+    use AuthorizesContentAuthors;
 
     public function rules(): array
     {

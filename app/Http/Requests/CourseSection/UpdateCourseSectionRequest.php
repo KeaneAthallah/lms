@@ -2,14 +2,12 @@
 
 namespace App\Http\Requests\CourseSection;
 
+use App\Http\Requests\Concerns\AuthorizesContentAuthors;
 use Illuminate\Foundation\Http\FormRequest;
 
 class UpdateCourseSectionRequest extends FormRequest
 {
-    public function authorize(): bool
-    {
-        return $this->user() !== null && $this->user()->isInstructor();
-    }
+    use AuthorizesContentAuthors;
 
     public function rules(): array
     {

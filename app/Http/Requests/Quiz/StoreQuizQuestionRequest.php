@@ -2,16 +2,14 @@
 
 namespace App\Http\Requests\Quiz;
 
+use App\Http\Requests\Concerns\AuthorizesContentAuthors;
 use App\QuizQuestionType;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class StoreQuizQuestionRequest extends FormRequest
 {
-    public function authorize(): bool
-    {
-        return $this->user() !== null && $this->user()->isInstructor();
-    }
+    use AuthorizesContentAuthors;
 
     public function rules(): array
     {

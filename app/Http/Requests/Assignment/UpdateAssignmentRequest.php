@@ -2,15 +2,13 @@
 
 namespace App\Http\Requests\Assignment;
 
+use App\Http\Requests\Concerns\AuthorizesContentAuthors;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class UpdateAssignmentRequest extends FormRequest
 {
-    public function authorize(): bool
-    {
-        return $this->user() !== null && $this->user()->isInstructor();
-    }
+    use AuthorizesContentAuthors;
 
     public function rules(): array
     {

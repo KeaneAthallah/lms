@@ -9,6 +9,8 @@ use App\Models\Enrollment;
 use App\Models\QuizAttempt;
 use App\Notifications\CertificateIssued;
 use App\Notifications\CourseCompleted;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class CertificateService
@@ -41,28 +43,59 @@ class CertificateService
 
     public function issue(Enrollment $enrollment): Certificate
     {
-        $existing = Certificate::where('student_id', $enrollment->student_id)
+        // One certificate per student per course is a database invariant (unique
+        // index on (student_id, course_id)). The enrollment row is locked so a
+        // completion processed twice — a request and a queued job, say — issues
+        // one certificate and returns it to the loser of the race.
+        return DB::transaction(function () use ($enrollment): Certificate {
+            Enrollment::whereKey($enrollment->getKey())->lockForUpdate()->first();
+
+            if ($existing = $this->existingCertificate($enrollment)) {
+                return $existing;
+            }
+
+            // `nextNumber()` reads `max(id)`, which is itself racy. The unique
+            // index on certificate_number is the real guarantee; a collision
+            // just means the loser recomputes from the now-larger max.
+            for ($try = 0; $try < 5; $try++) {
+                try {
+                    $certificate = Certificate::create([
+                        'student_id' => $enrollment->student_id,
+                        'course_id' => $enrollment->course_id,
+                        'enrollment_id' => $enrollment->id,
+                        'certificate_number' => $this->nextNumber(),
+                        'identifier' => Str::uuid()->toString(),
+                        'issued_at' => now(),
+                    ]);
+                } catch (QueryException $exception) {
+                    if ($existing = $this->existingCertificate($enrollment)) {
+                        return $existing;
+                    }
+
+                    if ($try === 4) {
+                        throw $exception;
+                    }
+
+                    continue;
+                }
+
+                $student = $enrollment->student;
+                $student->notify(new CourseCompleted($enrollment->course));
+                $student->notify(new CertificateIssued($certificate));
+
+                return $certificate;
+            }
+
+            // Unreachable: the loop either returns or rethrows.
+            throw new RuntimeException('Unable to issue a unique certificate number.');
+        });
+    }
+
+    private function existingCertificate(Enrollment $enrollment): ?Certificate
+    {
+        return Certificate::where('student_id', $enrollment->student_id)
             ->where('course_id', $enrollment->course_id)
             ->first();
-
-        if ($existing) {
-            return $existing;
-        }
-
-        $certificate = Certificate::create([
-            'student_id' => $enrollment->student_id,
-            'course_id' => $enrollment->course_id,
-            'enrollment_id' => $enrollment->id,
-            'certificate_number' => $this->nextNumber(),
-            'identifier' => Str::uuid()->toString(),
-            'issued_at' => now(),
-        ]);
-
-        $student = $enrollment->student;
-        $student->notify(new CourseCompleted($enrollment->course));
-        $student->notify(new CertificateIssued($certificate));
-
-        return $certificate;
     }
 
     /**

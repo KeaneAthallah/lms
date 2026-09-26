@@ -2,30 +2,22 @@
 
 namespace App\Policies;
 
-use App\Models\Enrollment;
 use App\Models\Quiz;
 use App\Models\User;
+use App\Support\CourseAccess;
 
 class QuizPolicy
 {
+    public function __construct(protected CourseAccess $access) {}
+
     public function view(User $user, Quiz $quiz): bool
     {
-        if ($quiz->course->isOwnedBy($user)) {
-            return true;
-        }
-
-        return Enrollment::where('student_id', $user->id)
-            ->where('course_id', $quiz->course_id)
-            ->where('status', '!=', 'cancelled')
-            ->exists();
+        return $this->access->canLearn($user, $quiz->course);
     }
 
     public function take(User $user, Quiz $quiz): bool
     {
-        return Enrollment::where('student_id', $user->id)
-            ->where('course_id', $quiz->course_id)
-            ->where('status', '!=', 'cancelled')
-            ->exists();
+        return $this->access->canAttemptAssessment($user, $quiz->course);
     }
 
     public function update(User $user, Quiz $quiz): bool

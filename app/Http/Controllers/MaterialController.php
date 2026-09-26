@@ -11,7 +11,9 @@ class MaterialController extends Controller
 {
     public function download(Lesson $lesson, LessonMaterial $material): StreamedResponse
     {
-        $this->authorize('view', $material);
+        // Materials follow the same boundary as the lesson body: an enrolled
+        // student may only reach them through a published lesson.
+        $this->authorize('viewContent', $lesson);
 
         abort_unless((int) $material->lesson_id === (int) $lesson->id, 404);
 

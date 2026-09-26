@@ -2,24 +2,17 @@
 
 namespace App\Policies;
 
-use App\Models\Enrollment;
 use App\Models\LessonMaterial;
 use App\Models\User;
+use App\Support\CourseAccess;
 
 class LessonMaterialPolicy
 {
+    public function __construct(protected CourseAccess $access) {}
+
     public function view(User $user, LessonMaterial $material): bool
     {
-        $course = $material->lesson->course;
-
-        if ($course->isOwnedBy($user)) {
-            return true;
-        }
-
-        return Enrollment::where('student_id', $user->id)
-            ->where('course_id', $course->id)
-            ->where('status', '!=', 'cancelled')
-            ->exists();
+        return $this->access->canLearn($user, $material->lesson->course);
     }
 
     public function delete(User $user, LessonMaterial $material): bool
