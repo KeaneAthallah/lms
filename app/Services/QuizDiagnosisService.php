@@ -33,7 +33,7 @@ class QuizDiagnosisService
      */
     public function diagnose(QuizAttempt $attempt): array
     {
-        $attempt->load(['quiz.lesson.section', 'quiz.lesson.course:id,slug', 'quiz.questions.options', 'answers']);
+        $attempt->load(['quiz.lesson.section', 'quiz.lesson.course:id,slug', 'questions.options', 'answers']);
 
         $quiz = $attempt->quiz;
         $lesson = $quiz->lesson;
@@ -41,7 +41,9 @@ class QuizDiagnosisService
         $concept = $lesson?->section?->title ?? $quiz->title;
         $courseSlug = $lesson?->course?->slug ?? $quiz->course?->slug;
 
-        $total = $quiz->questions->count();
+        // The frozen set, so "you got 4 of 7 right" describes the paper the
+        // student was actually served.
+        $total = $attempt->questions->count();
         $correct = $attempt->answers->filter(fn ($answer) => (bool) $answer->is_correct)->count();
         $accuracy = $total === 0 ? 0.0 : round($correct / $total * 100, 1);
 
@@ -98,7 +100,7 @@ class QuizDiagnosisService
     {
         $misconceptions = [];
 
-        foreach ($attempt->quiz->questions as $question) {
+        foreach ($attempt->questions as $question) {
             $answer = $attempt->answers->first(fn ($row) => (int) $row->quiz_question_id === (int) $question->id);
 
             if ($answer === null || (bool) $answer->is_correct) {

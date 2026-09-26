@@ -9,11 +9,13 @@ use App\Models\LessonProgress;
 use App\Models\Quiz;
 use App\Models\QuizAnswer;
 use App\Models\QuizAttempt;
+use App\Models\QuizAttemptQuestion;
 use App\Models\QuizOption;
 use App\Models\QuizQuestion;
 use App\Models\User;
 use App\Services\EnrollmentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Collection;
 use Tests\TestCase;
 
 class QuizDiagnosisApiTest extends TestCase
@@ -23,6 +25,32 @@ class QuizDiagnosisApiTest extends TestCase
     private function enroll(User $student, Course $course): void
     {
         (new EnrollmentService)->enroll($student, $course);
+    }
+
+    /**
+     * Record the served questions for an attempt.
+     *
+     * `QuizService::start()` does this for real attempts; a factory-built
+     * completed attempt skips it, and would otherwise be graded and diagnosed
+     * against an empty question set.
+     *
+     * @param  Collection<int, QuizQuestion>  $questions
+     */
+    private function serveQuestions(QuizAttempt $attempt, $questions): void
+    {
+        $now = now();
+
+        QuizAttemptQuestion::insert(
+            $questions->values()
+                ->map(fn (QuizQuestion $question, int $index): array => [
+                    'quiz_attempt_id' => $attempt->id,
+                    'quiz_question_id' => $question->id,
+                    'sort_order' => $index,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ])
+                ->all()
+        );
     }
 
     private function makeBoundQuiz(int $questionCount = 2): array
@@ -69,6 +97,8 @@ class QuizDiagnosisApiTest extends TestCase
             'submitted_at' => now(),
         ]);
 
+        $this->serveQuestions($attempt, $questions);
+
         foreach ($questions as $question) {
             $wrong = $question->options()->where('is_correct', false)->firstOrFail();
             QuizAnswer::factory()->create([
@@ -107,6 +137,8 @@ class QuizDiagnosisApiTest extends TestCase
             'passed' => true,
             'submitted_at' => now(),
         ]);
+
+        $this->serveQuestions($attempt, $questions);
 
         foreach ($questions as $question) {
             $correct = $question->options()->where('is_correct', true)->firstOrFail();

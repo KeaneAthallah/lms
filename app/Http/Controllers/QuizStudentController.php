@@ -38,20 +38,22 @@ class QuizStudentController extends Controller
 
         $attempt = $this->quizzes->start($quiz, $user);
 
-        $attempt->load('quiz.questions.options');
+        // The frozen set, so a student who reopens an attempt is shown the same
+        // questions they started with rather than a fresh draw.
+        $attempt->load('questions.options');
 
         return response()->json([
             // Deliberately a hand-built payload, not the model. Serialising the
-            // attempt serialises its loaded `quiz.questions.options` too, which
-            // hands over `options[].is_correct` and any answer key held in
-            // `settings` — the student could read the answers before submitting.
-            // The client only needs the id and the deadline here.
+            // attempt serialises its loaded `questions.options` too, which hands
+            // over `options[].is_correct` and any answer key held in `settings` —
+            // the student could read the answers before submitting. The client
+            // only needs the id and the deadline here.
             'attempt' => [
                 'id' => $attempt->id,
                 'status' => $attempt->status->value,
                 'started_at' => $attempt->started_at->toISOString(),
             ],
-            'questions' => $attempt->quiz->questions->map(function (QuizQuestion $question): array {
+            'questions' => $attempt->questions->map(function (QuizQuestion $question): array {
                 $grader = $this->quizzes->graderFor($question->type);
 
                 return [
@@ -82,7 +84,7 @@ class QuizStudentController extends Controller
 
         $this->quizzes->submit($attempt, $request->validated());
 
-        return response()->json($this->resultPayload($attempt->fresh()->load(['quiz.questions.options', 'answers'])));
+        return response()->json($this->resultPayload($attempt->fresh()->load(['questions.options', 'answers'])));
     }
 
     public function showAttempt(Request $request, QuizAttempt $attempt)
@@ -95,7 +97,7 @@ class QuizStudentController extends Controller
             ]);
         }
 
-        return response()->json($this->resultPayload($attempt->load(['quiz.questions.options', 'answers'])));
+        return response()->json($this->resultPayload($attempt->load(['questions.options', 'answers'])));
     }
 
     /**
@@ -106,7 +108,9 @@ class QuizStudentController extends Controller
         $quiz = $attempt->quiz;
         $answers = $attempt->answers->keyBy('quiz_question_id');
 
-        $questions = $quiz->questions->map(function (QuizQuestion $question) use ($answers): array {
+        // Frozen set again: the review has to describe the paper the student was
+        // actually served, with the points that were actually available.
+        $questions = $attempt->questions->map(function (QuizQuestion $question) use ($answers): array {
             $answer = $answers->get($question->id);
             $grader = $this->quizzes->graderFor($question->type);
             $submitted = $grader->decode($answer?->answer);
@@ -144,7 +148,7 @@ class QuizStudentController extends Controller
                     'id' => $quiz->id,
                     'title' => $quiz->title,
                     'passing_score' => (float) $quiz->passing_score,
-                    'total_points' => $quiz->questions->sum('points'),
+                    'total_points' => $attempt->questions->sum('points'),
                     'course_slug' => $quiz->course->slug ?? null,
                 ],
             ],

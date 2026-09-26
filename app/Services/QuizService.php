@@ -7,6 +7,7 @@ use App\Models\Lesson;
 use App\Models\Quiz;
 use App\Models\QuizAnswer;
 use App\Models\QuizAttempt;
+use App\Models\QuizAttemptQuestion;
 use App\Models\QuizQuestion;
 use App\Models\User;
 use App\Notifications\QuizResult;
@@ -14,6 +15,7 @@ use App\QuizAttemptStatus;
 use App\QuizQuestionType;
 use App\Support\Grading\Grader;
 use App\Support\Grading\GraderRegistry;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -47,6 +49,16 @@ class QuizService
                 ]);
             }
 
+            $questions = $this->resolveQuestions($quiz);
+
+            if ($questions->isEmpty()) {
+                throw ValidationException::withMessages([
+                    'quiz' => [$quiz->drawsFromBank()
+                        ? 'This quiz has no questions available yet.'
+                        : 'This quiz has no questions yet.'],
+                ]);
+            }
+
             $attempt = QuizAttempt::create([
                 'quiz_id' => $quiz->id,
                 'student_id' => $student->id,
@@ -54,12 +66,77 @@ class QuizService
                 'started_at' => now(),
             ]);
 
+            $this->freezeQuestionsFor($attempt, $questions);
+
             if ($quiz->lesson) {
                 $this->progress->markStarted($quiz->lesson, $student);
             }
 
             return $attempt;
         });
+    }
+
+    /**
+     * The questions this attempt should be served.
+     *
+     * For an ordinary quiz that is its own list. For a bank quiz it is a random
+     * sample, which is the whole point of a bank: two students sitting the same
+     * quiz get different questions.
+     *
+     * A bank with fewer questions than `draw_size` serves everything it has
+     * rather than refusing to start. Failing here would lock a student out of a
+     * quiz over an instructor's housekeeping.
+     *
+     * @return Collection<int, QuizQuestion>
+     */
+    public function resolveQuestions(Quiz $quiz): Collection
+    {
+        if (! $quiz->drawsFromBank()) {
+            return $quiz->questions()->with('options')->get();
+        }
+
+        $bank = $quiz->questionBank;
+
+        if (! $bank) {
+            return collect();
+        }
+
+        return $bank->questions()
+            ->with('options')
+            // `reorder()` drops the relation's default `sort_order`, which would
+            // otherwise win: SQL only honours the first ORDER BY, so adding
+            // `inRandomOrder()` on top of it looks random in the code and serves
+            // the same first N questions to every student.
+            ->reorder()
+            ->inRandomOrder()
+            ->limit(max(1, (int) ($quiz->draw_size ?? 0)))
+            ->get()
+            ->values();
+    }
+
+    /**
+     * Record the served questions against the attempt.
+     *
+     * From this point the attempt is graded, reviewed, and resumed through
+     * `QuizAttempt::questions()`, so the paper cannot shift under the student.
+     *
+     * @param  Collection<int, QuizQuestion>  $questions
+     */
+    private function freezeQuestionsFor(QuizAttempt $attempt, Collection $questions): void
+    {
+        $now = now();
+
+        QuizAttemptQuestion::insert(
+            $questions->values()
+                ->map(fn (QuizQuestion $question, int $index): array => [
+                    'quiz_attempt_id' => $attempt->id,
+                    'quiz_question_id' => $question->id,
+                    'sort_order' => $index,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ])
+                ->all()
+        );
     }
 
     /**
@@ -79,7 +156,12 @@ class QuizService
                 ->firstOrFail();
 
             $quiz = $attempt->quiz;
-            $questions = $quiz->questions()->with('options')->get();
+
+            // The frozen set, not `$quiz->questions`: a bank quiz owns no
+            // questions at all, and a fixed quiz's list can be edited while a
+            // student is mid-attempt. Grading the live list would score against
+            // a paper the student was never shown.
+            $questions = $attempt->questions()->with('options')->get();
 
             if ($attempt->isCompleted()) {
                 throw ValidationException::withMessages([
@@ -153,7 +235,7 @@ class QuizService
                 }
             }
 
-            return $attempt->refresh()->load(['answers', 'quiz.questions.options']);
+            return $attempt->refresh()->load(['answers', 'questions.options']);
         });
     }
 

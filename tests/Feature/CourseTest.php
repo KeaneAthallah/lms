@@ -6,6 +6,7 @@ use App\Models\Course;
 use App\Models\CourseCategory;
 use App\Models\CourseSection;
 use App\Models\Lesson;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -60,5 +61,20 @@ class CourseTest extends TestCase
             ->assertOk()
             ->assertJsonCount(1)
             ->assertJsonPath('0.name', $category->name);
+    }
+
+    public function test_the_admin_category_list_reports_each_category_course_count(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $category = CourseCategory::factory()->create();
+        Course::factory()->count(2)->create(['category_id' => $category->id]);
+
+        $row = collect($this->actingAs($admin)
+            ->getJson('/api/admin/categories')
+            ->assertOk()
+            ->json('categories'))
+            ->firstWhere('id', $category->id);
+
+        $this->assertSame(2, $row['courses_count']);
     }
 }

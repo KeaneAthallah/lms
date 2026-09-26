@@ -21,7 +21,12 @@ class QuizResource extends JsonResource
             'passing_score' => (float) $this->passing_score,
             'attempts_allowed' => $this->attempts_allowed,
             'status' => $this->status,
-            'questions_count' => $this->questions_count,
+            // What the student will actually be served, which for a bank quiz is
+            // the draw size rather than the (empty) list of attached questions.
+            'questions_count' => $this->plannedQuestionCount(),
+            'attached_questions_count' => $this->when(isset($this->questions_count), fn () => (int) $this->questions_count),
+            'draw_size' => $this->draw_size,
+            'question_bank_id' => $this->question_bank_id,
             'total_points' => $this->whenLoaded('questions', fn () => $this->questions->sum('points')),
             'lesson' => $this->whenLoaded('lesson', fn () => [
                 'id' => $this->lesson->id,

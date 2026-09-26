@@ -30,7 +30,7 @@ class AdminCourseController extends Controller
     {
         $course->load(['instructor:id,name,email', 'category:id,name,slug'])
             ->loadCount(['lessons', 'enrollments'])
-            ->load(['sections.lessons' => fn ($q) => $q->with(['quiz', 'assignment'])->orderBy('sort_order')]);
+            ->load(['sections.lessons' => fn ($q) => $q->with(['quiz' => fn ($quiz) => $quiz->withCount('questions'), 'assignment'])->orderBy('sort_order')]);
 
         return new CourseResource($course);
     }

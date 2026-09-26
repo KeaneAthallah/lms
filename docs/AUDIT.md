@@ -269,7 +269,7 @@ Two contract smells worth recording before they calcify:
 
 Recorded as each item lands, with the tests that prove it.
 
-Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 tests, 520 assertions**. After the Phase 2 question-type slice: **205 tests, 599 assertions**. All passing, on MySQL 8 (`db_lms`) with a full `migrate` → `rollback` → `migrate` round trip verified.
+Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 tests, 520 assertions**. After the Phase 2 question-type slice: **205 tests, 599 assertions**. After the question-bank slice: **238 tests, 705 assertions**. All passing, on MySQL 8 (`db_lms`) with a full `migrate` → `rollback` → `migrate` round trip verified.
 
 | # | Item | Change | Proof |
 |---|------|--------|-------|
@@ -292,6 +292,11 @@ Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 te
 | 17 | Hidden answer keys | `QuizStudentController::start()` returns a minimal attempt plus a per-type `settingsForStudent()` projection instead of the raw attempt, whose loaded relations handed over `options[].is_correct` and the `settings` answer key before submission. | `QuizQuestionTypeGradingTest` |
 | 18 | Authoring | `StoreQuizQuestionRequest` validates type-specific settings and rejects keys that do not apply to the type, so an author is not left with a setting the grader silently ignores. Numeric/fill-in-blank keys live in `settings`, never in `options`, because every option row is rendered to the student. Blanks must line up with the placeholders in the text. | `QuizQuestionAuthoringTest` |
 | 19 | Authoring and student UI | `QuestionInput`/`QuestionReview`/`questionTypes` render and review every type from the same per-type switch; the instructor form covers all six types. The answered counter tests each question for a real answer, so an empty multi-select or a half-filled blank no longer counts as answered. | `npm run build` |
+| 20 | Question banks (A3) | Course-scoped `question_banks` hold a reusable pool; a quiz either owns its questions or names a bank plus a `draw_size`. `QuizQuestion` is exclusive to one owner (model and request guards, since SQLite cannot add a CHECK to an existing table) and every attempt freezes the questions it was served in `quiz_attempt_questions`. | `QuestionBankTest` |
+| 21 | Attempt snapshots | `QuizService::start()` writes the drawn set and `submit()`, the result page and diagnosis all read `$attempt->questions`. `plannedQuestionCount()` reports the draw size for a bank quiz, so a lesson is no longer shown as "0 questions". | `QuestionBankTest`, `QuizDiagnosisApiTest` |
+| 22 | Frozen questions | A question already served in an attempt cannot be edited or deleted, from either the quiz or the bank, and `quiz_attempt_questions.quiz_question_id` is `ON DELETE RESTRICT` as a backstop. The builder disables those controls and labels the question "In use" instead of failing on save. | `QuestionBankTest` |
+| 23 | Bank builder UI | Banks are managed from `Curriculum → Question banks`; `QuizSettingsForm` covers both create and edit paths, surfaces `draw_size`/`question_bank_id` errors on their own fields, and blocks the bank switch while a quiz still owns questions because the server refuses it. | `npm run build` |
+| 24 | Detaching a bank | `InstructorQuizController::update` sets `question_bank_id` and `draw_size` explicitly. Spreading the validated payload only writes keys the client sent, so a quiz that went back to owning its questions would have kept drawing from the bank forever, and the builder's "This quiz only" control would have done nothing. | `QuestionBankTest` |
 
 ### Notes and residual risk
 
@@ -301,7 +306,9 @@ Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 te
 - **`CourseAccess` is request-scoped, not process-scoped.** It memoizes on the request, so long-lived workers (queues, Octane) must not reuse it across requests without calling `flush()`.
 - **Grading is a strategy, and the strategy owns the secret.** Each `Grader` both scores a submission and projects its own settings for the student. That is deliberate: the answer key is the same knowledge the scoring rule needs, so keeping `settingsForStudent()` beside `grade()` means a new type has to decide what is safe to send rather than inheriting a default that might leak. `fill_in_blank` and `numeric` keep their key in `settings` rather than in `options` for the same reason — every option row is shown to the student, so an option-based key would be visible before submitting.
 - **A question type is a backend change first.** Adding a case to `QuizQuestionType` without a grader, a `settingsForStudent()` projection, and validation will fail loudly at the registry rather than quietly scoring every submission zero.
-- **Deliberately not done in this pass.** The learning-map N+1 (F1), certificate PDF generation, the frontend issues catalogued in §6/§7 (dark-mode tokens, stale short-answer options, `ghost`/`brand` variants, modal focus, typography, code splitting), question banks, advanced assessment behaviour, and the gradebook.
+- **A random draw has to clear the relation's own ordering.** `QuestionBank::questions()` orders by `sort_order` so the builder shows a stable list, and SQL honours only the first `ORDER BY`. `inRandomOrder()` on top of that looked random in the code and served every student the same first N questions; the draw uses `reorder()` instead. Any future "pick some at random" query has to do the same.
+- **A column subset on a has-many eager load must include the foreign key.** `with('courses:id,title,slug')` matches rows on `category_id`, which was not selected, and silently hydrates an empty collection rather than raising - the `withCount` total stays correct, so only the missing list gave it away. `belongsTo` subsets are safe because the key already sits on the parent row.
+- **Deliberately not done in this pass.** The learning-map N+1 (F1), certificate PDF generation, the frontend issues catalogued in §6/§7 (dark-mode tokens, stale short-answer options, `ghost`/`brand` variants, modal focus, typography, code splitting), blueprint quotas, question versioning, advanced assessment behaviour, and the gradebook.
 
 ### Follow-ups worth prioritising next
 

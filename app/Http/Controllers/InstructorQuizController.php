@@ -44,6 +44,8 @@ class InstructorQuizController extends Controller
                 'passing_score' => (float) $quiz->passing_score,
                 'questions_count' => 0,
                 'lesson_id' => $lesson->id,
+                'question_bank_id' => $quiz->question_bank_id,
+                'draw_size' => $quiz->draw_size,
             ],
         ], 201);
     }
@@ -54,8 +56,19 @@ class InstructorQuizController extends Controller
         abort_unless((int) $quiz->course_id === (int) $course->id, 404);
 
         $quiz->update([
-            ...$request->safe()->except(['time_limit_minutes']),
+            ...$request->safe()->except(['time_limit_minutes', 'question_bank_id', 'draw_size']),
             'time_limit_minutes' => $request->filled('time_limit_minutes') ? (int) $request->input('time_limit_minutes') : null,
+            // These form requests describe the whole quiz (`title`,
+            // `passing_score` and `attempts_allowed` are all required), so an
+            // absent bank means "go back to owning its own questions" rather
+            // than "leave the bank alone". Spreading the validated payload alone
+            // would make a bank impossible to detach.
+            'question_bank_id' => $request->input('question_bank_id') === null
+                ? null
+                : (int) $request->input('question_bank_id'),
+            'draw_size' => $request->input('draw_size') === null
+                ? null
+                : (int) $request->input('draw_size'),
         ]);
 
         return response()->json([
@@ -66,6 +79,8 @@ class InstructorQuizController extends Controller
                 'instructions' => $quiz->instructions,
                 'time_limit_minutes' => $quiz->time_limit_minutes,
                 'passing_score' => (float) $quiz->passing_score,
+                'question_bank_id' => $quiz->question_bank_id,
+                'draw_size' => $quiz->draw_size,
             ],
         ]);
     }
@@ -78,7 +93,7 @@ class InstructorQuizController extends Controller
         $this->authorize('manage', $course);
         abort_unless((int) $quiz->course_id === (int) $course->id, 404);
 
-        $quiz->load(['lesson:id,title,section_id', 'questions.options']);
+        $quiz->load(['lesson:id,title,section_id', 'questions.options', 'questionBank:id,title']);
 
         return response()->json([
             'quiz' => [
@@ -88,6 +103,12 @@ class InstructorQuizController extends Controller
                 'time_limit_minutes' => $quiz->time_limit_minutes,
                 'passing_score' => (float) $quiz->passing_score,
                 'course_id' => $quiz->course_id,
+                'question_bank_id' => $quiz->question_bank_id,
+                'draw_size' => $quiz->draw_size,
+                'question_bank' => $quiz->questionBank ? [
+                    'id' => $quiz->questionBank->id,
+                    'title' => $quiz->questionBank->title,
+                ] : null,
                 'lesson_id' => $quiz->lesson?->id,
                 'lesson_title' => $quiz->lesson?->title,
                 'questions' => $quiz->questions->map(fn (QuizQuestion $question): array => [
@@ -141,6 +162,7 @@ class InstructorQuizController extends Controller
     {
         $this->authorize('manage', $course);
         abort_unless((int) $question->quiz_id === (int) $quiz->id, 404);
+        $this->guardUnusedQuestion($question);
 
         $question->update([
             'type' => $request->input('type'),
@@ -166,11 +188,33 @@ class InstructorQuizController extends Controller
     {
         $this->authorize('manage', $course);
         abort_unless((int) $question->quiz_id === (int) $quiz->id, 404);
+        $this->guardUnusedQuestion($question);
 
         $question->options()->delete();
         $question->delete();
 
         return response()->json(['message' => 'Question deleted.']);
+    }
+
+    /**
+     * Refuse to change a question a student has already been served.
+     *
+     * An attempt records the questions it was given and its review page is
+     * rebuilt from that record, so rewriting the question would make a completed
+     * attempt claim the student was asked something they never saw. Adding a new
+     * question is how to iterate.
+     *
+     * @throws ValidationException
+     */
+    private function guardUnusedQuestion(QuizQuestion $question): void
+    {
+        if (! $question->isInUse()) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'question' => ['This question has already been used in a student attempt, so it cannot be changed or removed. Add a new question instead.'],
+        ]);
     }
 
     private function createQuestion(Quiz $quiz, StoreQuizQuestionRequest $request): QuizQuestion

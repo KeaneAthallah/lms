@@ -13,7 +13,9 @@ class AdminCategoryController extends Controller
 {
     public function index(Request $request)
     {
-        $query = CourseCategory::withCount(['courses'])->with(['courses:id,title,slug']);
+        // Only the count is rendered, so the listing counts rather than loading
+        // every course just to discard it.
+        $query = CourseCategory::withCount(['courses']);
 
         if ($search = $request->string('search')->trim()->toString()) {
             $query->where('name', 'like', "%{$search}%");

@@ -48,7 +48,11 @@ class LessonResource extends JsonResource
                 'passing_score' => (float) $this->quiz->passing_score,
                 'attempts_allowed' => $this->quiz->attempts_allowed,
                 'status' => $this->quiz->status,
-                'questions_count' => $this->quiz->questions_count ?? 0,
+                // A bank quiz draws its questions at attempt time, so the count
+                // is the draw size rather than an attached question total.
+                'question_bank_id' => $this->quiz->question_bank_id,
+                'draw_size' => $this->quiz->draw_size,
+                'questions_count' => $this->quiz->plannedQuestionCount(),
                 'has_passed' => $this->whenLoaded('quiz.attempts', fn () => $this->quiz->attempts->where('passed', true)->isNotEmpty()),
             ]),
             'assignment' => $this->whenLoaded('assignment', fn () => [

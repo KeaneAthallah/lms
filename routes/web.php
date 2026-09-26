@@ -40,6 +40,7 @@ use App\Http\Controllers\MaterialController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PortfolioController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\QuestionBankController;
 use App\Http\Controllers\QuizReadinessController;
 use App\Http\Controllers\QuizRecoveryController;
 use App\Http\Controllers\QuizStudentController;
@@ -159,6 +160,14 @@ Route::prefix('api')->middleware(['auth', 'role:instructor'])->group(function ()
     Route::post('/instructor/courses/{course:slug}/quizzes/{quiz}/questions', [InstructorQuizController::class, 'storeQuestion']);
     Route::put('/instructor/courses/{course:slug}/quizzes/{quiz}/questions/{question}', [InstructorQuizController::class, 'updateQuestion']);
     Route::delete('/instructor/courses/{course:slug}/quizzes/{quiz}/questions/{question}', [InstructorQuizController::class, 'destroyQuestion']);
+    Route::get('/instructor/courses/{course:slug}/question-banks', [QuestionBankController::class, 'index']);
+    Route::post('/instructor/courses/{course:slug}/question-banks', [QuestionBankController::class, 'store']);
+    Route::get('/instructor/courses/{course:slug}/question-banks/{questionBank}', [QuestionBankController::class, 'show']);
+    Route::put('/instructor/courses/{course:slug}/question-banks/{questionBank}', [QuestionBankController::class, 'update']);
+    Route::delete('/instructor/courses/{course:slug}/question-banks/{questionBank}', [QuestionBankController::class, 'destroy']);
+    Route::post('/instructor/courses/{course:slug}/question-banks/{questionBank}/questions', [QuestionBankController::class, 'storeQuestion']);
+    Route::put('/instructor/courses/{course:slug}/question-banks/{questionBank}/questions/{question}', [QuestionBankController::class, 'updateQuestion']);
+    Route::delete('/instructor/courses/{course:slug}/question-banks/{questionBank}/questions/{question}', [QuestionBankController::class, 'destroyQuestion']);
 
     Route::post('/instructor/courses/{course:slug}/assignments', [InstructorAssignmentController::class, 'store']);
     Route::put('/instructor/courses/{course:slug}/assignments/{assignment}', [InstructorAssignmentController::class, 'update']);

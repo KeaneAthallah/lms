@@ -670,7 +670,7 @@ class LearningInsightService
                 return [$lesson->quiz->time_limit_minutes, false];
             }
 
-            $questions = (int) ($lesson->quiz->questions_count ?? 0);
+            $questions = $lesson->quiz->plannedQuestionCount();
 
             return [max(5, (int) round($questions * 1.5)), true];
         }

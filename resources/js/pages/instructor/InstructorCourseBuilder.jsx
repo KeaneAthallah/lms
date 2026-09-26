@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api, { apiError } from '../../api';
-import { Badge, Breadcrumbs, Button, ButtonLink, ConfirmDialog, EmptyState, Field, Icon, Input, Modal, PageHeader, PageLoader, Section, Select, StatusBadge, Textarea, useToast } from '../../components/ui';
+import { Alert, Badge, Breadcrumbs, Button, ButtonLink, ConfirmDialog, EmptyState, Field, Icon, Input, Modal, PageHeader, PageLoader, Section, Select, StatusBadge, Textarea, useToast } from '../../components/ui';
 import { blankIndexes } from '../../components/quiz/questionTypes';
 
 const lessonMeta = {
@@ -26,6 +26,8 @@ export default function InstructorCourseBuilder() {
     const [lessonModal, setLessonModal] = useState(null); // { mode, sectionId, lesson? }
     const [quizModal, setQuizModal] = useState(null); // { lessonId, quizId?, quiz? }
     const [assignmentModal, setAssignmentModal] = useState(null); // { sectionId, assignment? }
+    const [banksOpen, setBanksOpen] = useState(false);
+    const [bankManager, setBankManager] = useState(null); // bank to open for question authoring
     const [confirm, setConfirm] = useState(null);
     const [materialFor, setMaterialFor] = useState(null);
     const materialInput = useRef(null);
@@ -211,9 +213,14 @@ export default function InstructorCourseBuilder() {
                 title="Curriculum"
                 icon="grid"
                 actions={
-                    <Button variant="secondary" size="sm" icon="plus" onClick={() => setSectionModal({ mode: 'create' })}>
-                        Add section
-                    </Button>
+                    <>
+                        <Button variant="secondary" size="sm" icon="layers" onClick={() => setBanksOpen(true)}>
+                            Question banks
+                        </Button>
+                        <Button variant="secondary" size="sm" icon="plus" onClick={() => setSectionModal({ mode: 'create' })}>
+                            Add section
+                        </Button>
+                    </>
                 }
             >
 
@@ -332,6 +339,7 @@ export default function InstructorCourseBuilder() {
                     run={run}
                     busy={busy}
                     toast={toast}
+                    confirm={setConfirm}
                 />
             ) : null}
 
@@ -345,6 +353,29 @@ export default function InstructorCourseBuilder() {
                     busy={busy}
                     sections={sections}
                     toast={toast}
+                />
+            ) : null}
+
+            {banksOpen ? (
+                <QuestionBanksModal
+                    open
+                    onClose={() => setBanksOpen(false)}
+                    courseSlug={course.slug}
+                    run={run}
+                    busy={busy}
+                    onManage={(bank) => { setBanksOpen(false); setBankManager(bank); }}
+                />
+            ) : null}
+
+            {bankManager ? (
+                <QuestionBankModal
+                    open
+                    onClose={() => setBankManager(null)}
+                    courseSlug={course.slug}
+                    bank={bankManager}
+                    run={run}
+                    busy={busy}
+                    confirm={setConfirm}
                 />
             ) : null}
 
@@ -576,9 +607,12 @@ function LessonModal({ open, onClose, mode, lesson, saving, onSubmit, toast }) {
 
 /* -------------------------------- Quiz modal ------------------------------- */
 
-function QuizModal({ open, onClose, courseSlug, data, run, busy, toast }) {
+function QuizModal({ open, onClose, courseSlug, data, run, busy, toast, confirm }) {
     const [settings, setSettings] = useState(null);
     const [questions, setQuestions] = useState([]);
+    const [banks, setBanks] = useState([]);
+    const [errors, setErrors] = useState({});
+    const [savingSettings, setSavingSettings] = useState(false);
     const [editing, setEditing] = useState(null); // null | { q?, form }
     const [creating, setCreating] = useState(false);
     const [ids, setIds] = useState(() => ({
@@ -591,6 +625,12 @@ function QuizModal({ open, onClose, courseSlug, data, run, busy, toast }) {
     const quizId = ids.quizId;
     const quiz = data.quiz;
     const sectionId = ids.sectionId;
+
+    const loadBanks = useCallback(() => {
+        api.get(`/api/instructor/courses/${courseSlug}/question-banks`)
+            .then(({ data }) => setBanks(data.banks ?? []))
+            .catch(() => toast('Could not load question banks.', 'error'));
+    }, [courseSlug, toast]);
 
     const loadQuiz = useCallback(() => {
         if (!quizId) {
@@ -607,23 +647,56 @@ function QuizModal({ open, onClose, courseSlug, data, run, busy, toast }) {
                     passing_score: q.passing_score,
                     attempts_allowed: q.attempts_allowed ?? 1,
                     time_limit_minutes: q.time_limit_minutes ?? '',
+                    question_bank_id: q.question_bank_id ?? '',
+                    draw_size: q.draw_size ?? '',
                 });
                 setQuestions(q.questions ?? []);
+                setErrors({});
             })
             .catch(() => toast('Could not load quiz.', 'error'));
     }, [courseSlug, quizId, toast]);
 
     useEffect(() => {
-        if (open) loadQuiz();
-    }, [open, loadQuiz]);
+        if (open) {
+            loadBanks();
+            loadQuiz();
+        }
+    }, [open, loadBanks, loadQuiz]);
+
+    // Takes the merged settings rather than reading `settings` directly, because
+    // in create mode the defaults live in `effectiveSettings`, not in state.
+    const settingsPayload = (base) => {
+        const next = { ...(base ?? {}) };
+        // The server treats a missing bank as "owns its own questions", so the
+        // bank keys must be dropped rather than sent as empty strings.
+        if (next.question_bank_id) {
+            return {
+                ...next,
+                question_bank_id: Number(next.question_bank_id),
+                draw_size: Number(next.draw_size) || undefined,
+            };
+        }
+        delete next.question_bank_id;
+        delete next.draw_size;
+        return next;
+    };
 
     const saveSettings = async () => {
         if (!settings) return;
-        const ok = await run(
-            () => api.post(`/api/instructor/courses/${courseSlug}/quizzes/${quizId}?_method=PUT`, settings),
-            'Quiz settings saved.',
-        );
-        if (ok) loadQuiz();
+        setSavingSettings(true);
+        setErrors({});
+        try {
+            await api.post(`/api/instructor/courses/${courseSlug}/quizzes/${quizId}?_method=PUT`, settingsPayload(settings));
+            toast('Quiz settings saved.', 'success');
+            loadQuiz();
+        } catch (err) {
+            // Surfaced per-field rather than collapsed into a toast, so a
+            // rejected draw size lands on the input that caused it.
+            setErrors(err.response?.data?.errors ?? {});
+            toast(apiError(err), 'error');
+        } finally {
+            setSavingSettings(false);
+        }
     };
 
     const createQuiz = async () => {
@@ -642,19 +715,21 @@ function QuizModal({ open, onClose, courseSlug, data, run, busy, toast }) {
             if (!targetLessonId) return;
         }
         if (!targetLessonId) return;
-        const ok = await run(
-            () => api.post(`/api/instructor/courses/${courseSlug}/lessons/${targetLessonId}/quiz`, effectiveSettings),
-            'Quiz created — add questions to finish it.',
-        );
-        if (ok?.data?.quiz?.id) {
-            setIds((prev) => ({ ...prev, lessonId: targetLessonId, quizId: ok.data.quiz.id }));
-            setSettings({
-                title: ok.data.quiz.title,
-                instructions: ok.data.quiz.instructions ?? '',
-                passing_score: ok.data.quiz.passing_score,
-                attempts_allowed: effectiveSettings.attempts_allowed ?? 1,
-                time_limit_minutes: ok.data.quiz.time_limit_minutes ?? '',
-            });
+        setSavingSettings(true);
+        setErrors({});
+        try {
+            const { data } = await api.post(
+                `/api/instructor/courses/${courseSlug}/lessons/${targetLessonId}/quiz`,
+                settingsPayload(effectiveSettings),
+            );
+            toast(data.quiz?.question_bank_id ? 'Quiz created from a bank.' : 'Quiz created — add questions to finish it.', 'success');
+            setIds((prev) => ({ ...prev, lessonId: targetLessonId, quizId: data.quiz.id }));
+            loadQuiz();
+        } catch (err) {
+            setErrors(err.response?.data?.errors ?? {});
+            toast(apiError(err), 'error');
+        } finally {
+            setSavingSettings(false);
         }
     };
 
@@ -677,10 +752,15 @@ function QuizModal({ open, onClose, courseSlug, data, run, busy, toast }) {
         if (ok) loadQuiz();
     };
 
-    const set = (key) => (e) => setSettings((f) => ({ ...f, [key]: key === 'time_limit_minutes' && e.target.value === '' ? null : Number(e.target.value) || e.target.value }));
+    const set = (key) => (e) => setSettings((f) => ({ ...f, [key]: ['time_limit_minutes', 'draw_size'].includes(key) && e.target.value === '' ? '' : Number(e.target.value) || e.target.value }));
 
-    const defaultNew = { title: '', instructions: '', passing_score: 70, attempts_allowed: 1, time_limit_minutes: '' };
+    const defaultNew = { title: '', instructions: '', passing_score: 70, attempts_allowed: 1, time_limit_minutes: '', question_bank_id: '', draw_size: '' };
     const effectiveSettings = quizId ? settings : { ...defaultNew, ...(settings ?? {}) };
+    const bankId = effectiveSettings?.question_bank_id || '';
+    const bank = banks.find((b) => String(b.id) === String(bankId)) ?? null;
+    const usesBank = Boolean(bankId);
+    // The server refuses to attach a bank while the quiz still owns questions,
+    // so the switch is blocked here rather than left to fail on save.
 
     if (!quizId) {
         // Creating a brand new quiz
@@ -692,13 +772,21 @@ function QuizModal({ open, onClose, courseSlug, data, run, busy, toast }) {
                 footer={
                     <>
                         <Button variant="secondary" onClick={onClose}>Cancel</Button>
-                        <Button loading={busy} icon="puzzle" onClick={createQuiz} disabled={!effectiveSettings.title?.trim()}>
+                        <Button loading={savingSettings} icon="puzzle" onClick={createQuiz} disabled={!effectiveSettings.title?.trim()}>
                             Create quiz
                         </Button>
                     </>
                 }
             >
-                <QuizSettingsForm settings={effectiveSettings} setSettings={set} submitLabel="Create" showFooter={false} />
+                <QuizSettingsForm
+                    settings={effectiveSettings}
+                    setSettings={set}
+                    submitLabel="Create"
+                    showFooter={false}
+                    banks={banks}
+                    errors={errors}
+                    questionCount={0}
+                />
             </Modal>
         );
     }
@@ -706,76 +794,145 @@ function QuizModal({ open, onClose, courseSlug, data, run, busy, toast }) {
     return (
         <Modal open={open} onClose={onClose} title="Manage quiz" size="lg" footer={<Button variant="secondary" onClick={onClose}>Done</Button>}>
             <div className="space-y-6">
-                <QuizSettingsForm settings={settings} setSettings={set} onSubmit={saveSettings} saving={busy} submitLabel="Save quiz settings" />
+                <QuizSettingsForm
+                    settings={settings}
+                    setSettings={set}
+                    onSubmit={saveSettings}
+                    saving={savingSettings}
+                    submitLabel="Save quiz settings"
+                    banks={banks}
+                    errors={errors}
+                    questionCount={questions.length}
+                />
 
-                <div>
-                    <div className="mb-3 flex items-center justify-between">
-                        <h3 className="text-sm font-bold text-slate-900">
-                            Questions ({questions.length})
-                        </h3>
-                        {!creating && !editing ? (
-                            <Button variant="secondary" size="sm" icon="plus" onClick={() => { setCreating(true); setEditing({ q: null, defaults: true }); }}>
-                                Add question
-                            </Button>
+                {usesBank ? (
+                    <div>
+                        <h3 className="text-sm font-bold text-slate-900">Question source</h3>
+                        <Alert tone="info" icon="layers" className="mt-3">
+                            {bank ? (
+                                <>
+                                    Each attempt draws <strong>{Number(settings.draw_size) || 0}</strong> of the{' '}
+                                    <strong>{bank.questions_count}</strong> questions in{' '}
+                                    <strong>{bank.title}</strong>, so every student gets a different paper.
+                                    Manage the pool under <strong>Curriculum → Question banks</strong>.
+                                </>
+                            ) : (
+                                'Select a question bank to draw this quiz from.'
+                            )}
+                        </Alert>
+                        {bank && Number(settings.draw_size) > bank.questions_count ? (
+                            <Alert tone="warning" icon="info" className="mt-3">
+                                The draw size is larger than the bank holds. Add more questions or lower the draw size.
+                            </Alert>
                         ) : null}
                     </div>
-
-                    {(creating || editing?.q) && !editing?.q?.id ? (
-                        <QuestionForm
-                            onCancel={() => { setCreating(false); setEditing(null); }}
-                            onSubmit={saveQuestion}
-                            saving={busy}
-                        />
-                    ) : null}
-
-                    {questions.map((q) => (
-                        <div key={q.id} className="mb-2 rounded-lg border border-slate-200 p-3">
-                            {editing?.q?.id === q.id ? (
-                                <QuestionForm
-                                    initial={q}
-                                    onCancel={() => setEditing(null)}
-                                    onSubmit={saveQuestion}
-                                    saving={busy}
-                                />
-                            ) : (
-                                <div>
-                                    <div className="flex items-start justify-between gap-3">
-                                        <p className="text-sm font-medium text-slate-800">
-                                            <span className="mr-1 text-brand-600">Q{q.type === 'short_answer' ? '·SA' : q.type === 'true_false' ? '·TF' : ''}.</span>
-                                            {q.question_text}
-                                        </p>
-                                        <div className="flex shrink-0 items-center gap-1">
-                                            <Badge color="slate">{q.points} pt</Badge>
-                                            <button type="button" className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600" onClick={() => setEditing({ q })}>
-                                                <Icon name="pencil" className="h-4 w-4" />
-                                            </button>
-                                            <button type="button" className="rounded-md p-1 text-slate-400 hover:bg-red-50 hover:text-red-600" onClick={() => deleteQuestion(q)}>
-                                                <Icon name="trash" className="h-4 w-4" />
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div className="mt-2 flex flex-wrap gap-2">
-                                        {q.options.map((o, i) => (
-                                            <span key={o.id} className={o.is_correct ? 'rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200' : 'rounded-full bg-slate-50 px-2 py-0.5 text-xs text-slate-500'}>
-                                                {o.option_text}
-                                            </span>
-                                        ))}
-                                        {q.options.length === 0 ? <span className="text-xs text-slate-400">No options</span> : null}
-                                    </div>
-                                </div>
-                            )}
+                ) : (
+                    <div>
+                        <div className="mb-3 flex items-center justify-between">
+                            <h3 className="text-sm font-bold text-slate-900">
+                                Questions ({questions.length})
+                            </h3>
+                            {!creating && !editing ? (
+                                <Button variant="secondary" size="sm" icon="plus" onClick={() => { setCreating(true); setEditing({ q: null, defaults: true }); }}>
+                                    Add question
+                                </Button>
+                            ) : null}
                         </div>
-                    ))}
 
-                    {questions.length === 0 && !creating ? <p className="text-sm text-slate-400">No questions yet — add the first one above.</p> : null}
-                </div>
+                        {(creating || editing?.q) && !editing?.q?.id ? (
+                            <QuestionForm
+                                onCancel={() => { setCreating(false); setEditing(null); }}
+                                onSubmit={saveQuestion}
+                                saving={busy}
+                            />
+                        ) : null}
+
+                        {questions.map((q) => (
+                            <QuestionListItem
+                                key={q.id}
+                                question={q}
+                                editing={editing?.q?.id === q.id ? (
+                                    <QuestionForm
+                                        initial={q}
+                                        onCancel={() => setEditing(null)}
+                                        onSubmit={saveQuestion}
+                                        saving={busy}
+                                    />
+                                ) : null}
+                                onEdit={() => setEditing({ q })}
+                                onDelete={() => confirm({
+                                    title: 'Delete this question?',
+                                    message: 'Students who have already attempted this quiz keep the question they were served, but it will be removed from the quiz.',
+                                    action: () => deleteQuestion(q),
+                                })}
+                            />
+                        ))}
+
+                        {questions.length === 0 && !creating ? <p className="text-sm text-slate-400">No questions yet — add the first one above.</p> : null}
+                    </div>
+                )}
             </div>
         </Modal>
     );
 }
 
-function QuizSettingsForm({ settings, setSettings, onSubmit, saving, submitLabel, showFooter = true }) {
+/**
+ * One row in a question list. Shared by quiz and bank authoring; `frozen`
+ * reflects that the question has already been served to a student, which
+ * locks both edit and delete on the server too.
+ */
+function QuestionListItem({ question: q, editing, onEdit, onDelete, frozen = false }) {
+    if (editing) return <div className="mb-2 rounded-lg border border-slate-200 p-3">{editing}</div>;
+
+    return (
+        <div className="mb-2 rounded-lg border border-slate-200 p-3">
+            <div className="flex items-start justify-between gap-3">
+                <p className="text-sm font-medium text-slate-800">
+                    <span className="mr-1 text-brand-600">Q{q.type === 'short_answer' ? '·SA' : q.type === 'true_false' ? '·TF' : ''}.</span>
+                    {q.question_text}
+                </p>
+                <div className="flex shrink-0 items-center gap-1">
+                    {frozen ? <Badge color="amber">In use</Badge> : null}
+                    <Badge color="slate">{q.points} pt</Badge>
+                    <button
+                        type="button"
+                        disabled={frozen}
+                        title={frozen ? 'This question has already been served to a student and can no longer be changed.' : undefined}
+                        className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                        onClick={onEdit}
+                    >
+                        <Icon name="pencil" className="h-4 w-4" />
+                    </button>
+                    <button
+                        type="button"
+                        disabled={frozen}
+                        title={frozen ? 'This question has already been served to a student and can no longer be deleted.' : undefined}
+                        className="rounded-md p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                        onClick={onDelete}
+                    >
+                        <Icon name="trash" className="h-4 w-4" />
+                    </button>
+                </div>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+                {(q.options ?? []).map((o) => (
+                    <span key={o.id} className={o.is_correct ? 'rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200' : 'rounded-full bg-slate-50 px-2 py-0.5 text-xs text-slate-500'}>
+                        {o.option_text}
+                    </span>
+                ))}
+                {(q.options ?? []).length === 0 ? <span className="text-xs text-slate-400">No options</span> : null}
+            </div>
+        </div>
+    );
+}
+
+function QuizSettingsForm({ settings, setSettings, onSubmit, saving, submitLabel, showFooter = true, banks = [], errors = {}, questionCount = 0 }) {
     if (!settings) return null;
+
+    const bankId = settings.question_bank_id || '';
+    const usesBank = Boolean(bankId);
+    const bank = banks.find((b) => String(b.id) === String(bankId)) ?? null;
+
     return (
         <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
@@ -797,6 +954,82 @@ function QuizSettingsForm({ settings, setSettings, onSubmit, saving, submitLabel
                     <Input type="number" min="0" value={settings.time_limit_minutes ?? ''} onChange={setSettings('time_limit_minutes')} />
                 </Field>
             </div>
+
+            <div className="rounded-lg border border-slate-200 p-4">
+                <div className="grid gap-4 sm:grid-cols-3">
+                    <Field label="Questions from" hint="Pick a bank to draw a random paper per attempt.">
+                        <Select
+                            value={usesBank ? 'bank' : 'quiz'}
+                            onChange={(e) => {
+                                const next = e.target.value;
+                                setSettings((f) => ({
+                                    ...f,
+                                    question_bank_id: next === 'bank' ? (f.question_bank_id || banks[0]?.id || '') : '',
+                                    draw_size: next === 'bank' ? (f.draw_size || '') : '',
+                                }));
+                            }}
+                        >
+                            <option value="quiz">This quiz only</option>
+                            <option value="bank">A question bank</option>
+                        </Select>
+                    </Field>
+
+                    {usesBank ? (
+                        <Field label="Bank" required error={errors.question_bank_id?.[0]}>
+                            <Select
+                                value={bankId}
+                                disabled={questionCount > 0 || banks.length === 0}
+                                onChange={(e) => setSettings((f) => ({ ...f, question_bank_id: e.target.value, draw_size: '' }))}
+                            >
+                                {banks.length === 0 ? <option value="">No banks yet</option> : null}
+                                {banks.map((b) => (
+                                    <option key={b.id} value={b.id}>
+                                        {b.title} ({b.questions_count})
+                                    </option>
+                                ))}
+                            </Select>
+                        </Field>
+                    ) : null}
+
+                    {usesBank ? (
+                        <Field
+                            label="Questions per attempt"
+                            required
+                            hint={bank ? `The bank holds ${bank.questions_count}.` : undefined}
+                            error={errors.draw_size?.[0]}
+                        >
+                            <Input
+                                type="number"
+                                min="1"
+                                max={bank?.questions_count}
+                                value={settings.draw_size ?? ''}
+                                onChange={setSettings('draw_size')}
+                            />
+                        </Field>
+                    ) : null}
+                </div>
+
+                {usesBank && banks.length === 0 ? (
+                    <p className="mt-3 text-xs text-amber-700">
+                        No question banks yet. Create one under <strong>Curriculum → Question banks</strong> first.
+                    </p>
+                ) : null}
+
+                {questionCount > 0 ? (
+                    <p className="mt-3 text-xs text-amber-700">
+                        Delete this quiz&rsquo;s questions before switching to a bank — a quiz either owns its
+                        questions or draws them from a bank.
+                    </p>
+                ) : null}
+
+                {usesBank && questionCount > 0 ? (
+                    <p className="mt-3 text-xs text-red-600">
+                        This quiz still owns {questionCount} {questionCount === 1 ? 'question' : 'questions'} while
+                        also drawing from a bank. Saving will be refused until they are removed.
+                    </p>
+                ) : null}
+            </div>
+
             {showFooter ? (
                 <div className="flex justify-end">
                     <Button loading={saving} onClick={onSubmit} icon="check" disabled={!settings.title?.trim()}>
@@ -805,6 +1038,238 @@ function QuizSettingsForm({ settings, setSettings, onSubmit, saving, submitLabel
                 </div>
             ) : null}
         </div>
+    );
+}
+
+/* ------------------------------ Question banks ------------------------------ */
+
+/**
+ * Lists the course's banks and opens the authoring modal for one. A bank is a
+ * reusable pool that quizzes draw from, so it is managed at course level rather
+ * than inside any single quiz.
+ */
+function QuestionBanksModal({ open, onClose, courseSlug, run, busy, onManage }) {
+    const [banks, setBanks] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [editing, setEditing] = useState(null); // { bank? }
+
+    const base = `/api/instructor/courses/${courseSlug}/question-banks`;
+
+    const load = useCallback(() => {
+        api.get(base)
+            .then(({ data }) => setBanks(data.banks ?? []))
+            .catch(() => setBanks([]))
+            .finally(() => setLoading(false));
+    }, [base]);
+
+    useEffect(() => {
+        if (open) {
+            setLoading(true);
+            load();
+        }
+    }, [open, load]);
+
+    const save = async (payload) => {
+        const ok = await run(
+            () => (editing?.bank
+                ? api.post(`${base}/${editing.bank.id}?_method=PUT`, payload)
+                : api.post(base, payload)),
+            editing?.bank ? 'Question bank updated.' : 'Question bank created.',
+        );
+        if (ok) {
+            setEditing(null);
+            load();
+        }
+    };
+
+    return (
+        <Modal
+            open={open}
+            onClose={onClose}
+            title="Question banks"
+            size="lg"
+            footer={
+                <>
+                    <Button variant="secondary" onClick={onClose}>Close</Button>
+                    <Button icon="plus" onClick={() => setEditing({ bank: null })}>
+                        New bank
+                    </Button>
+                </>
+            }
+        >
+            <div className="space-y-4">
+                <p className="text-sm text-slate-500">
+                    A bank is a pool of questions that a quiz can draw from, so every student gets a
+                    different paper. Questions stay reusable across quizzes in this course.
+                </p>
+
+                {editing ? (
+                    <form
+                        className="space-y-4 rounded-lg border border-brand-200 bg-brand-50/50 p-4"
+                        onSubmit={(e) => { e.preventDefault(); save({ title: editing.title, description: editing.description }); }}
+                    >
+                        <Field label="Bank title" required>
+                            <Input autoFocus value={editing.title ?? ''} onChange={(e) => setEditing((s) => ({ ...s, title: e.target.value }))} />
+                        </Field>
+                        <Field label="Description" hint="Optional. Shown to instructors only.">
+                            <Input value={editing.description ?? ''} onChange={(e) => setEditing((s) => ({ ...s, description: e.target.value }))} />
+                        </Field>
+                        <div className="flex justify-end gap-2">
+                            <Button type="button" variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>
+                            <Button type="submit" icon="check" loading={busy} disabled={!editing.title?.trim()}>Save bank</Button>
+                        </div>
+                    </form>
+                ) : null}
+
+                {loading ? (
+                    <PageLoader label="Loading banks." />
+                ) : banks.length === 0 ? (
+                    <EmptyState
+                        icon="layers"
+                        title="No question banks yet"
+                        message="Create a bank to hold reusable questions, then point a quiz at it."
+                        action={<Button icon="plus" onClick={() => setEditing({ bank: null, title: '' })}>Create a bank</Button>}
+                    />
+                ) : (
+                    <ul className="space-y-2">
+                        {banks.map((b) => (
+                            <li key={b.id} className="rounded-lg border border-slate-200 p-3">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <p className="truncate text-sm font-semibold text-slate-900">{b.title}</p>
+                                        <p className="mt-0.5 text-xs text-slate-500">
+                                            {b.questions_count} {b.questions_count === 1 ? 'question' : 'questions'}
+                                            {b.questions_count > 0 ? ` · ${b.points_total} pt total` : ''}
+                                            {b.quizzes_count > 0 ? ` · used by ${b.quizzes_count} ${b.quizzes_count === 1 ? 'quiz' : 'quizzes'}` : ' · not used yet'}
+                                        </p>
+                                        {b.questions_count === 0 ? (
+                                            <p className="mt-1 text-xs text-amber-700">Add questions before a quiz can draw from it.</p>
+                                        ) : null}
+                                    </div>
+                                    <div className="flex shrink-0 items-center gap-1">
+                                        <Button size="sm" variant="secondary" icon="listChecks" onClick={() => onManage(b)}>
+                                            Questions
+                                        </Button>
+                                        <button
+                                            type="button"
+                                            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                                            onClick={() => setEditing({ bank: b, title: b.title, description: b.description ?? '' })}
+                                            aria-label={`Edit ${b.title}`}
+                                        >
+                                            <Icon name="pencil" className="h-4 w-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </div>
+        </Modal>
+    );
+}
+
+/** Authors the questions inside one bank, reusing the quiz question editor. */
+function QuestionBankModal({ open, onClose, courseSlug, bank, run, busy, confirm }) {
+    const [detail, setDetail] = useState(null);
+    const [creating, setCreating] = useState(false);
+    const [editing, setEditing] = useState(null); // question being edited
+
+    const base = `/api/instructor/courses/${courseSlug}/question-banks/${bank.id}`;
+
+    const load = useCallback(() => {
+        api.get(base)
+            .then(({ data }) => setDetail(data.bank ?? null))
+            .catch(() => setDetail(null));
+    }, [base]);
+
+    useEffect(() => {
+        if (open) {
+            setDetail(null);
+            setCreating(false);
+            setEditing(null);
+            load();
+        }
+    }, [open, load]);
+
+    const saveQuestion = async (payload) => {
+        const ok = await run(
+            () => (editing
+                ? api.post(`${base}/questions/${editing.id}?_method=PUT`, payload)
+                : api.post(`${base}/questions`, payload)),
+            editing ? 'Question updated.' : 'Question added.',
+        );
+        if (ok) {
+            setEditing(null);
+            setCreating(false);
+            load();
+        }
+    };
+
+    const deleteQuestion = async (question) => {
+        const ok = await run(() => api.delete(`${base}/questions/${question.id}`), 'Question deleted.');
+        if (ok) load();
+    };
+
+    const questions = detail?.questions ?? [];
+    const usedBy = detail?.quizzes ?? [];
+
+    return (
+        <Modal
+            open={open}
+            onClose={onClose}
+            title={`${bank.title} — questions`}
+            size="lg"
+            footer={
+                <>
+                    <Button variant="secondary" onClick={onClose}>Close</Button>
+                    {!creating && !editing ? (
+                        <Button icon="plus" onClick={() => setCreating(true)}>Add question</Button>
+                    ) : null}
+                </>
+            }
+        >
+            <div className="space-y-4">
+                {usedBy.length > 0 ? (
+                    <Alert tone="info" icon="info">
+                        Used by {usedBy.map((q) => q.title).join(', ')}. A question that has already been
+                        served to a student is locked — add a new one instead of editing it.
+                    </Alert>
+                ) : null}
+
+                {creating ? (
+                    <QuestionForm onCancel={() => setCreating(false)} onSubmit={saveQuestion} saving={busy} />
+                ) : null}
+
+                {questions.map((q) => (
+                    <QuestionListItem
+                        key={q.id}
+                        question={q}
+                        frozen={Boolean(q.in_use)}
+                        editing={editing?.id === q.id ? (
+                            <QuestionForm initial={q} onCancel={() => setEditing(null)} onSubmit={saveQuestion} saving={busy} />
+                        ) : null}
+                        onEdit={() => setEditing(q)}
+                        onDelete={() => confirm({
+                            title: 'Delete this question?',
+                            message: 'It will be removed from the bank. Quizzes drawing from this bank will no longer be able to pick it.',
+                            action: () => deleteQuestion(q),
+                        })}
+                    />
+                ))}
+
+                {!detail ? <PageLoader label="Loading questions." /> : null}
+
+                {detail && questions.length === 0 && !creating ? (
+                    <EmptyState
+                        icon="listChecks"
+                        title="No questions yet"
+                        message="Add questions so a quiz can draw from this bank."
+                        action={<Button icon="plus" onClick={() => setCreating(true)}>Add the first question</Button>}
+                    />
+                ) : null}
+            </div>
+        </Modal>
     );
 }
 
