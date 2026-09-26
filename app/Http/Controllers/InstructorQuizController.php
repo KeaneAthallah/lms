@@ -96,6 +96,8 @@ class InstructorQuizController extends Controller
                     'question_text' => $question->question_text,
                     'points' => (float) $question->points,
                     'explanation' => $question->explanation,
+                    'sort_order' => (int) $question->sort_order,
+                    'settings' => $question->settings ?? [],
                     'options' => $question->options->map(fn (QuizOption $option): array => [
                         'id' => $option->id,
                         'option_text' => $option->option_text,
@@ -145,6 +147,8 @@ class InstructorQuizController extends Controller
             'question_text' => $request->input('question_text'),
             'points' => $request->input('points'),
             'explanation' => $request->input('explanation'),
+            'settings' => $this->settingsFor($request),
+            'sort_order' => $request->input('sort_order') ?? $question->sort_order,
         ]);
 
         if ($request->has('options')) {
@@ -174,8 +178,13 @@ class InstructorQuizController extends Controller
         $question = $quiz->questions()->create([
             'type' => $request->input('type'),
             'question_text' => $request->input('question_text'),
-            'points' => $request->input('points'),
             'explanation' => $request->input('explanation'),
+            'points' => $request->input('points'),
+            'settings' => $this->settingsFor($request),
+            // Appended questions used to all land on the column default of 0, so
+            // the quiz order was whatever the database happened to return.
+            'sort_order' => $request->input('sort_order')
+                ?? ((int) $quiz->questions()->max('sort_order') + 1),
         ]);
 
         $this->syncOptions($question, $request->input('options', []), $question->type);
@@ -183,25 +192,36 @@ class InstructorQuizController extends Controller
         return $question;
     }
 
-    private function syncOptions(QuizQuestion $question, array $options, $type): void
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function settingsFor(StoreQuizQuestionRequest $request): ?array
     {
-        foreach ($options as $option) {
-            if ($type === QuizQuestionType::TrueFalse) {
-                $optionText = $option['option_text'] ?? '';
-                $isCorrect = ($option['is_correct'] ?? false) ? true : false;
+        $settings = $request->input('settings');
 
-                $question->options()->create([
-                    'option_text' => $optionText,
-                    'is_correct' => $isCorrect,
-                    'explanation' => $option['explanation'] ?? null,
-                ]);
-            } else {
-                $question->options()->create([
-                    'option_text' => $option['option_text'],
-                    'is_correct' => (bool) ($option['is_correct'] ?? false),
-                    'explanation' => $option['explanation'] ?? null,
-                ]);
-            }
+        return is_array($settings) && $settings !== [] ? $settings : null;
+    }
+
+    /**
+     * Replace the question's options with the submitted set.
+     *
+     * Correct flags are meaningless for the types that keep their answer key in
+     * `settings`, so they are dropped rather than stored misleadingly.
+     */
+    private function syncOptions(QuizQuestion $question, array $options, QuizQuestionType $type): void
+    {
+        $usesOptionKey = in_array($type, [
+            QuizQuestionType::MultipleChoice,
+            QuizQuestionType::TrueFalse,
+            QuizQuestionType::MultiSelect,
+        ], true);
+
+        foreach ($options as $option) {
+            $question->options()->create([
+                'option_text' => $option['option_text'],
+                'is_correct' => $usesOptionKey && (bool) ($option['is_correct'] ?? false),
+                'explanation' => $option['explanation'] ?? null,
+            ]);
         }
     }
 
@@ -213,6 +233,8 @@ class InstructorQuizController extends Controller
             'question_text' => $question->question_text,
             'points' => (float) $question->points,
             'explanation' => $question->explanation,
+            'sort_order' => (int) $question->sort_order,
+            'settings' => $question->settings ?? [],
             'options' => $question->options->map(fn (QuizOption $option): array => [
                 'id' => $option->id,
                 'option_text' => $option->option_text,

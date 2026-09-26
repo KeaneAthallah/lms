@@ -269,7 +269,7 @@ Two contract smells worth recording before they calcify:
 
 Recorded as each item lands, with the tests that prove it.
 
-Baseline before this pass: **96 tests, 376 assertions**. Final: **155 tests, 520 assertions**, all passing, on MySQL 8 (`db_lms`) with a full `migrate` → `rollback` → `migrate` round trip verified.
+Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 tests, 520 assertions**. After the Phase 2 question-type slice: **205 tests, 599 assertions**. All passing, on MySQL 8 (`db_lms`) with a full `migrate` → `rollback` → `migrate` round trip verified.
 
 | # | Item | Change | Proof |
 |---|------|--------|-------|
@@ -287,6 +287,11 @@ Baseline before this pass: **96 tests, 376 assertions**. Final: **155 tests, 520
 | 12 | Regression suite | 6 new feature suites + additions to `LearningMapTest`. | 155 passing |
 | 13 | Assessment-authority split | `CourseAccess::canAttemptAssessment()` added. Owners and admins keep content read access via `canLearn()` but can no longer sit a quiz or hand in an assignment, which would otherwise write attempts into their own gradebook. | `CourseContentAccessTest` |
 | 14 | Course-scoped media | Uploaded lesson videos are stored under `lessons/videos/{course_id}/`, not the uploading instructor's id. | `LessonVideoAccessTest` |
+| 15 | Grading strategy (A1) | `Grader` contract owns `grade()`, `serialize()`, `decode()` and `settingsForStudent()`; `GraderRegistry` maps each `QuizQuestionType` to an implementation. `QuizService` no longer knows how any individual type is scored. | `QuizGradingTest` |
+| 16 | New question types (A2) | `multi_select` (optional proportional partial credit), `numeric` (hidden accepted value, absolute tolerance, unit/scientific parsing) and `fill_in_blank` (`{{1}}` placeholders, per-blank alternatives, optional partial credit). Each grader is a separate class. | `QuizQuestionTypeGradingTest` |
+| 17 | Hidden answer keys | `QuizStudentController::start()` returns a minimal attempt plus a per-type `settingsForStudent()` projection instead of the raw attempt, whose loaded relations handed over `options[].is_correct` and the `settings` answer key before submission. | `QuizQuestionTypeGradingTest` |
+| 18 | Authoring | `StoreQuizQuestionRequest` validates type-specific settings and rejects keys that do not apply to the type, so an author is not left with a setting the grader silently ignores. Numeric/fill-in-blank keys live in `settings`, never in `options`, because every option row is rendered to the student. Blanks must line up with the placeholders in the text. | `QuizQuestionAuthoringTest` |
+| 19 | Authoring and student UI | `QuestionInput`/`QuestionReview`/`questionTypes` render and review every type from the same per-type switch; the instructor form covers all six types. The answered counter tests each question for a real answer, so an empty multi-select or a half-filled blank no longer counts as answered. | `npm run build` |
 
 ### Notes and residual risk
 
@@ -294,7 +299,9 @@ Baseline before this pass: **96 tests, 376 assertions**. Final: **155 tests, 520
 - **Two authorisation axes, not one.** `canLearn()` (owners, admins, enrolled students) governs *reading* course content. `canAttemptAssessment()` (enrolled students only) governs *creating graded records*. Collapsing these into one helper is what let course owners take their own quizzes mid-pass; keep them separate and route every new gated feature to the one that matches its intent.
 - **Content boundary is one method.** `CourseAccess::canViewLessonContent()` is the single gate for lesson bodies and media. A future content type only needs to route through it; nothing in `LessonResource` should make its own authorization decision.
 - **`CourseAccess` is request-scoped, not process-scoped.** It memoizes on the request, so long-lived workers (queues, Octane) must not reuse it across requests without calling `flush()`.
-- **Deliberately not done in this pass.** The learning-map N+1 (F1), certificate PDF generation, the frontend issues catalogued in §6/§7 (dark-mode tokens, stale short-answer options, `ghost`/`brand` variants, modal focus, typography, code splitting), and the Phases 2-9 roadmap items.
+- **Grading is a strategy, and the strategy owns the secret.** Each `Grader` both scores a submission and projects its own settings for the student. That is deliberate: the answer key is the same knowledge the scoring rule needs, so keeping `settingsForStudent()` beside `grade()` means a new type has to decide what is safe to send rather than inheriting a default that might leak. `fill_in_blank` and `numeric` keep their key in `settings` rather than in `options` for the same reason — every option row is shown to the student, so an option-based key would be visible before submitting.
+- **A question type is a backend change first.** Adding a case to `QuizQuestionType` without a grader, a `settingsForStudent()` projection, and validation will fail loudly at the registry rather than quietly scoring every submission zero.
+- **Deliberately not done in this pass.** The learning-map N+1 (F1), certificate PDF generation, the frontend issues catalogued in §6/§7 (dark-mode tokens, stale short-answer options, `ghost`/`brand` variants, modal focus, typography, code splitting), question banks, advanced assessment behaviour, and the gradebook.
 
 ### Follow-ups worth prioritising next
 

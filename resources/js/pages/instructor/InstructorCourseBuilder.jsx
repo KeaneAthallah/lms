@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api, { apiError } from '../../api';
 import { Badge, Breadcrumbs, Button, ButtonLink, ConfirmDialog, EmptyState, Field, Icon, Input, Modal, PageHeader, PageLoader, Section, Select, StatusBadge, Textarea, useToast } from '../../components/ui';
+import { blankIndexes } from '../../components/quiz/questionTypes';
 
 const lessonMeta = {
     text: { label: 'Text lesson', icon: 'doc' },
@@ -813,6 +814,7 @@ function QuestionForm({ initial, onCancel, onSubmit, saving }) {
         question_text: initial?.question_text ?? '',
         points: initial?.points ?? 1,
         explanation: initial?.explanation ?? '',
+        settings: initial?.settings ?? {},
         options: initial?.options?.map((o) => ({ option_text: o.option_text, is_correct: Boolean(o.is_correct), explanation: o.explanation ?? '' })) ?? [
             { option_text: '', is_correct: false, explanation: '' },
             { option_text: '', is_correct: false, explanation: '' },
@@ -820,20 +822,55 @@ function QuestionForm({ initial, onCancel, onSubmit, saving }) {
     }));
 
     const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+    const setSetting = (key, value) => setForm((f) => ({ ...f, settings: { ...f.settings, [key]: value } }));
     const setOption = (i, key, value) => setForm((f) => ({ ...f, options: f.options.map((o, idx) => (idx === i ? { ...o, [key]: value } : o)) }));
+
+    /**
+     * The accepted answers for a fill-in-the-blank, as a list of blank indexes so
+     * the editor can render one row per placeholder found in the text.
+     */
+    const blanks = useMemo(() => blankIndexes(form.question_text), [form.question_text]);
+
+    const setBlankAlternatives = (index, value) => {
+        setSetting('blanks', {
+            ...form.settings?.blanks,
+            [index]: value.split('|').map((s) => s.trim()).filter(Boolean),
+        });
+    };
 
     const submit = () => {
         const payload = { type: form.type, question_text: form.question_text, points: Number(form.points) || 1, explanation: form.explanation };
+
         if (form.type === 'short_answer') {
-            payload.options = [{ option_text: initial?.options?.[0]?.option_text ?? '', is_correct: true, explanation: '' }];
+            // The grader reads the key from the first option flagged correct, so
+            // the typed answer has to be sent as a real option row.
+            payload.options = [{ option_text: form.options[0]?.option_text ?? '', is_correct: true, explanation: '' }];
         } else if (form.type === 'true_false') {
             payload.options = [
                 { option_text: 'True', is_correct: form.options?.[0]?.is_correct === true, explanation: form.options?.[0]?.explanation },
                 { option_text: 'False', is_correct: form.options?.[1]?.is_correct === true, explanation: form.options?.[1]?.explanation },
             ];
+        } else if (form.type === 'numeric' || form.type === 'fill_in_blank') {
+            // These keep their answer key in settings, never in options, because
+            // every option row is rendered to the student and would show the key.
+            payload.options = [];
+            payload.settings = { ...form.settings };
+
+            // A cleared tolerance arrives as an empty string, which the server
+            // rejects as non-numeric. Drop it so the default of zero applies.
+            if (form.type === 'numeric' && payload.settings.tolerance === '') {
+                delete payload.settings.tolerance;
+            }
         } else {
             payload.options = form.options.filter((o) => o.option_text.trim());
+
+            // Only multi_select accepts a setting. Sending partial_credit on a
+            // single-answer question would be rejected as inapplicable.
+            if (form.type === 'multi_select') {
+                payload.settings = { partial_credit: Boolean(form.settings?.partial_credit) };
+            }
         }
+
         onSubmit(payload);
     };
 
@@ -841,10 +878,36 @@ function QuestionForm({ initial, onCancel, onSubmit, saving }) {
         if (form.type === 'true_false') {
             const next = form.options.map((o, idx) => ({ ...o, is_correct: idx === i }));
             set('options', next);
+        } else if (form.type === 'multiple_choice') {
+            set('options', form.options.map((o, idx) => ({ ...o, is_correct: idx === i })));
         } else {
             setOption(i, 'is_correct', !form.options[i].is_correct);
         }
     };
+
+    const filledOptionCount = form.options.filter((o) => o.option_text.trim()).length;
+    const correctOptionCount = form.options.filter((o) => o.is_correct).length;
+    const numericAnswer = String(form.settings?.answer ?? '').trim();
+    const numericTolerance = String(form.settings?.tolerance ?? '').trim();
+    const blankAnswersPresent = blanks.length > 0 && blanks.every((b) => (form.settings?.blanks?.[b] ?? []).length > 0);
+
+    /**
+     * Mirrors the server's own rules so an author finds out what is missing
+     * before submitting, rather than from a 422. The server remains the
+     * authority; this only avoids the obviously-rejected cases.
+     */
+    const typeIsComplete = {
+        short_answer: String(form.options[0]?.option_text ?? '').trim() !== '',
+        // True/false option text is fixed, so counting filled rows here would
+        // never pass even once the author has chosen the correct side.
+        true_false: correctOptionCount >= 1,
+        numeric: numericAnswer !== '' && Number.isFinite(Number(numericAnswer)) && (numericTolerance === '' || Number.isFinite(Number(numericTolerance))),
+        fill_in_blank: blankAnswersPresent,
+        multiple_choice: filledOptionCount >= 2 && correctOptionCount >= 1,
+        multi_select: filledOptionCount >= 2 && correctOptionCount >= 1,
+    }[form.type];
+
+    const canSave = form.question_text.trim() !== '' && typeIsComplete;
 
     return (
         <div className="rounded-lg border border-brand-200 bg-brand-50/50 p-4">
@@ -854,10 +917,22 @@ function QuestionForm({ initial, onCancel, onSubmit, saving }) {
                         <Input value={form.question_text} onChange={(e) => set('question_text', e.target.value)} />
                     </Field>
                     <Field label="Type">
-                        <Select value={form.type} onChange={(e) => set('type', e.target.value)}>
+                        <Select
+                            value={form.type}
+                            onChange={(e) => {
+                                set('type', e.target.value);
+                                // Settings belong to the type they were written
+                                // for, and the backend rejects the mismatch, so
+                                // start clean rather than carrying them over.
+                                set('settings', {});
+                            }}
+                        >
                             <option value="multiple_choice">Multiple choice</option>
+                            <option value="multi_select">Multiple select</option>
                             <option value="true_false">True / False</option>
                             <option value="short_answer">Short answer</option>
+                            <option value="numeric">Numeric</option>
+                            <option value="fill_in_blank">Fill in the blank</option>
                         </Select>
                     </Field>
                     <Field label="Points">
@@ -881,12 +956,73 @@ function QuestionForm({ initial, onCancel, onSubmit, saving }) {
                             </label>
                         ))}
                     </div>
+                ) : form.type === 'numeric' ? (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                        <Field label="Accepted answer" required hint="Never shown to students.">
+                            <Input
+                                type="number"
+                                step="any"
+                                value={form.settings?.answer ?? ''}
+                                onChange={(e) => setSetting('answer', e.target.value)}
+                            />
+                        </Field>
+                        <Field label="Tolerance" hint="Absolute margin that still counts, e.g. 0.05.">
+                            <Input
+                                type="number"
+                                step="any"
+                                min="0"
+                                value={form.settings?.tolerance ?? 0}
+                                onChange={(e) => setSetting('tolerance', e.target.value)}
+                            />
+                        </Field>
+                    </div>
+                ) : form.type === 'fill_in_blank' ? (
+                    <div className="space-y-2">
+                        <p className="text-xs text-slate-500">
+                            Put <code className="rounded bg-slate-100 px-1">{'{{1}}'}</code> in the question text where each
+                            blank goes. Accepted answers are hidden from students; separate alternatives with a pipe.
+                        </p>
+                        {blanks.length === 0 ? (
+                            <p className="text-sm font-medium text-amber-700">Add a {'{{1}}'} placeholder to the question text.</p>
+                        ) : (
+                            blanks.map((index) => (
+                                <Field key={index} label={`Accepted answers for blank ${index}`} required>
+                                    <Input
+                                        value={(form.settings?.blanks?.[index] ?? []).join(' | ')}
+                                        onChange={(e) => setBlankAlternatives(index, e.target.value)}
+                                        placeholder="Paris | City of Light"
+                                    />
+                                </Field>
+                            ))
+                        )}
+                        <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700">
+                            <input
+                                type="checkbox"
+                                checked={Boolean(form.settings?.partial_credit)}
+                                onChange={(e) => setSetting('partial_credit', e.target.checked)}
+                                className="h-4 w-4 accent-brand-600"
+                            />
+                            Award partial credit per blank
+                        </label>
+                    </div>
                 ) : (
                     <div className="space-y-2">
+                        {form.type === 'multi_select' ? (
+                            <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-700">
+                                <input
+                                    type="checkbox"
+                                    checked={Boolean(form.settings?.partial_credit)}
+                                    onChange={(e) => setSetting('partial_credit', e.target.checked)}
+                                    className="h-4 w-4 accent-brand-600"
+                                />
+                                Award partial credit ({'(correct − wrong) ÷ total correct'})
+                            </label>
+                        ) : null}
                         {form.options.map((option, i) => (
                             <div key={i} className="flex items-center gap-2">
                                 <input
-                                    type="checkbox"
+                                    type={form.type === 'multi_select' ? 'checkbox' : 'radio'}
+                                    name={form.type === 'multiple_choice' ? `mc-${initial?.id ?? 'new'}` : undefined}
                                     checked={option.is_correct}
                                     onChange={() => setCorrect(i)}
                                     className="h-4 w-4 shrink-0 accent-brand-600"
@@ -912,7 +1048,7 @@ function QuestionForm({ initial, onCancel, onSubmit, saving }) {
                     <Button variant="secondary" size="sm" onClick={onCancel}>
                         Cancel
                     </Button>
-                    <Button loading={saving} size="sm" icon="check" onClick={submit} disabled={!form.question_text.trim() || form.type !== 'short_answer' && form.options.filter((o) => o.option_text.trim()).length < 2}>
+                    <Button loading={saving} size="sm" icon="check" onClick={submit} disabled={!canSave}>
                         {initial?.id ? 'Save question' : 'Add question'}
                     </Button>
                 </div>

@@ -9,6 +9,7 @@ use App\Models\QuizAttempt;
 use App\Models\QuizQuestion;
 use App\Services\QuizDiagnosisService;
 use App\Services\QuizService;
+use App\Support\Grading\Grader;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
@@ -37,20 +38,37 @@ class QuizStudentController extends Controller
 
         $attempt = $this->quizzes->start($quiz, $user);
 
-        $attempt->load(['quiz', 'quiz.questions.options']);
+        $attempt->load('quiz.questions.options');
 
         return response()->json([
-            'attempt' => $attempt,
-            'questions' => $attempt->quiz->questions->map(fn (QuizQuestion $question): array => [
-                'id' => $question->id,
-                'type' => $question->type->value,
-                'question_text' => $question->question_text,
-                'points' => (float) $question->points,
-                'options' => $question->options->map(fn ($option): array => [
-                    'id' => $option->id,
-                    'option_text' => $option->option_text,
-                ]),
-            ]),
+            // Deliberately a hand-built payload, not the model. Serialising the
+            // attempt serialises its loaded `quiz.questions.options` too, which
+            // hands over `options[].is_correct` and any answer key held in
+            // `settings` — the student could read the answers before submitting.
+            // The client only needs the id and the deadline here.
+            'attempt' => [
+                'id' => $attempt->id,
+                'status' => $attempt->status->value,
+                'started_at' => $attempt->started_at->toISOString(),
+            ],
+            'questions' => $attempt->quiz->questions->map(function (QuizQuestion $question): array {
+                $grader = $this->quizzes->graderFor($question->type);
+
+                return [
+                    'id' => $question->id,
+                    'type' => $question->type->value,
+                    'question_text' => $question->question_text,
+                    'points' => (float) $question->points,
+                    // The per-type projection, never the raw settings bag: for a
+                    // fill-in-the-blank the accepted answers live in settings and
+                    // sending them would hand over the answer key.
+                    'settings' => $grader->settingsForStudent($question),
+                    'options' => $question->options->map(fn ($option): array => [
+                        'id' => $option->id,
+                        'option_text' => $option->option_text,
+                    ]),
+                ];
+            }),
             'time_limit_minutes' => $attempt->quiz->time_limit_minutes,
             'expires_at' => $attempt->quiz->time_limit_minutes
                 ? $attempt->started_at->addMinutes((int) $attempt->quiz->time_limit_minutes)->toISOString()
@@ -90,22 +108,25 @@ class QuizStudentController extends Controller
 
         $questions = $quiz->questions->map(function (QuizQuestion $question) use ($answers): array {
             $answer = $answers->get($question->id);
-            $chosenId = $question->type->value === 'short_answer' ? null : (int) $answer?->answer;
+            $grader = $this->quizzes->graderFor($question->type);
+            $submitted = $grader->decode($answer?->answer);
 
             return [
                 'id' => $question->id,
                 'type' => $question->type->value,
                 'question_text' => $question->question_text,
                 'points' => (float) $question->points,
+                'explanation' => $question->explanation,
                 'is_correct' => $answer?->is_correct,
                 'points_earned' => (float) ($answer?->points_earned ?? 0),
-                'submitted_answer' => $question->type->value === 'short_answer' ? $answer?->answer : $chosenId,
+                'submitted_answer' => $submitted,
+                'settings' => $grader->settingsForStudent($question),
                 'options' => $question->options->map(fn ($option): array => [
                     'id' => $option->id,
                     'option_text' => $option->option_text,
                     'is_correct' => $option->is_correct,
                     'explanation' => $option->explanation,
-                    'chosen' => $chosenId !== null && (int) $option->id === $chosenId,
+                    'chosen' => $this->optionWasChosen($grader, $submitted, $option->id),
                 ]),
             ];
         });
@@ -130,5 +151,22 @@ class QuizStudentController extends Controller
             'questions' => $questions,
             'diagnosis' => (new QuizDiagnosisService)->diagnose($attempt),
         ];
+    }
+
+    /**
+     * Whether the student picked this option, across every type whose answer
+     * references option ids.
+     *
+     * A multi-select answer decodes to a list, so comparing it to a scalar id
+     * would silently mark nothing as chosen. Free-text types carry no option
+     * ids, so they return false rather than needing a type check here.
+     */
+    private function optionWasChosen(Grader $grader, mixed $submitted, int $optionId): bool
+    {
+        if (is_array($submitted)) {
+            return in_array($optionId, array_map('intval', $submitted), true);
+        }
+
+        return is_int($submitted) && $submitted === $optionId;
     }
 }

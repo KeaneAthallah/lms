@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import api, { apiError } from '../api';
-import { Badge, Button, ButtonLink, Card, ConfirmDialog, cx, EmptyState, Icon, Input, PageLoader, useToast } from '../components/ui';
+import { Badge, Button, ButtonLink, Card, ConfirmDialog, cx, EmptyState, Icon, PageLoader, useToast } from '../components/ui';
+import QuestionInput from '../components/quiz/QuestionInput';
+import QuestionReview from '../components/quiz/QuestionReview';
+import QuestionText from '../components/quiz/QuestionText';
+import { isAnswered } from '../components/quiz/questionTypes';
 
 function formatTime(seconds) {
     if (seconds <= 0) return '0:00';
@@ -170,7 +174,10 @@ export default function QuizPage() {
 
     const setAnswer = (qid, value) => setAnswers((prev) => ({ ...prev, [qid]: value }));
 
-    const answered = Object.keys(answers).length;
+    // Counted per question rather than by key count: an empty multi-select array
+    // and a fill-in-the-blank with one blank left empty are both stored but not
+    // answered, and both would otherwise let the student submit an incomplete quiz.
+    const answered = questions.filter((question) => isAnswered(question, answers[question.id])).length;
 
     const resultSummary = useMemo(() => {
         if (!result?.attempt || !questions?.length) return null;
@@ -214,40 +221,15 @@ export default function QuizPage() {
                             <div className="mb-3 flex items-start justify-between gap-3">
                                 <p className="font-semibold text-slate-900">
                                     <span className="mr-1.5 text-brand-600">Q{index + 1}.</span>
-                                    {question.question_text}
+                                    <QuestionText text={question.question_text} />
                                 </p>
                                 <Badge color="slate">{question.points} pt</Badge>
                             </div>
-                            {question.type === 'short_answer' ? (
-                                <Input
-                                    value={answers[question.id] ?? ''}
-                                    onChange={(e) => setAnswer(question.id, e.target.value)}
-                                    placeholder="Type your answer…"
-                                />
-                            ) : (
-                                <div className="space-y-2">
-                                    {question.options.map((option) => (
-                                        <label
-                                            key={option.id}
-                                            className={cx(
-                                                'flex cursor-pointer items-center gap-3 rounded-lg border px-4 py-2.5 text-sm transition',
-                                                Number(answers[question.id]) === option.id
-                                                    ? 'border-brand-500 bg-brand-50 text-brand-900'
-                                                    : 'border-slate-200 text-slate-700 hover:border-brand-300',
-                                            )}
-                                        >
-                                            <input
-                                                type="radio"
-                                                name={`q-${question.id}`}
-                                                checked={Number(answers[question.id]) === option.id}
-                                                onChange={() => setAnswer(question.id, option.id)}
-                                                className="h-4 w-4 accent-brand-600"
-                                            />
-                                            {option.option_text}
-                                        </label>
-                                    ))}
-                                </div>
-                            )}
+                            <QuestionInput
+                                question={question}
+                                value={answers[question.id]}
+                                onChange={(value) => setAnswer(question.id, value)}
+                            />
                         </Card>
                     ))}
                 </div>
@@ -341,6 +323,31 @@ export default function QuizPage() {
     );
 }
 
+/**
+ * A question that awards partial credit lands between full marks and nothing,
+ * so a binary correct/incorrect badge would misreport it. Show the real number
+ * whenever it is not all-or-nothing, and colour it by how close it got.
+ */
+function pointsBadgeLabel(question) {
+    const earned = Number(question.points_earned ?? 0);
+    const possible = Number(question.points ?? 0);
+
+    if (earned <= 0) return `0 / ${possible} pts`;
+    if (earned >= possible) return `+${earned} pts`;
+
+    return `${earned} / ${possible} pts`;
+}
+
+function pointsBadgeColor(question) {
+    const earned = Number(question.points_earned ?? 0);
+    const possible = Number(question.points ?? 0);
+
+    if (earned <= 0) return 'red';
+    if (earned >= possible) return 'green';
+
+    return 'amber';
+}
+
 function QuizResult({ result, quizTitle, quizId, onClose, summary }) {
     const attempt = result.attempt;
     const passed = Boolean(attempt.passed);
@@ -394,43 +401,12 @@ function QuizResult({ result, quizTitle, quizId, onClose, summary }) {
                             <div className="flex items-start justify-between gap-3">
                                 <p className="font-semibold text-slate-900">
                                     <span className="mr-1.5 text-brand-600">Q{index + 1}.</span>
-                                    {question.question_text}
+                                    <QuestionText text={question.question_text} answers={question.submitted_answer} fallback="left blank" />
                                 </p>
-                                <Badge color={question.is_correct ? 'green' : 'red'}>
-                                    {question.is_correct ? `+${question.points_earned} pts` : `0 / ${question.points} pts`}
-                                </Badge>
+                                <Badge color={pointsBadgeColor(question)}>{pointsBadgeLabel(question)}</Badge>
                             </div>
 
-                            {question.type === 'short_answer' ? (
-                                <p className="mt-3 text-sm text-slate-600">
-                                    Your answer: <span className="font-semibold">{question.submitted_answer || '—'}</span>
-                                </p>
-                            ) : (
-                                <div className="mt-3 space-y-1.5">
-                                    {question.options.map((option) => (
-                                        <div
-                                            key={option.id}
-                                            className={cx(
-                                                'flex items-center gap-2 rounded-lg border px-3 py-2 text-sm',
-                                                option.chosen && option.is_correct && 'border-emerald-300 bg-emerald-50 text-emerald-800',
-                                                option.chosen && !option.is_correct && 'border-red-300 bg-red-50 text-red-800',
-                                                !option.chosen && option.is_correct && 'border-emerald-200 bg-emerald-50/50 text-emerald-700',
-                                                !option.chosen && !option.is_correct && 'border-slate-200 text-slate-600',
-                                            )}
-                                        >
-                                            {option.is_correct ? (
-                                                <Icon name="check" className="h-4 w-4 text-emerald-500" strokeWidth={2.5} />
-                                            ) : option.chosen ? (
-                                                <Icon name="x" className="h-4 w-4 text-red-500" strokeWidth={2.5} />
-                                            ) : (
-                                                <span className="h-4 w-4" />
-                                            )}
-                                            <span className="flex-1">{option.option_text}</span>
-                                            {option.chosen ? <Badge color={option.is_correct ? 'green' : 'red'}>Your answer</Badge> : null}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                            <QuestionReview question={question} />
                             {question.explanation ? (
                                 <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">{question.explanation}</p>
                             ) : null}

@@ -27,6 +27,9 @@ class GraderRegistry
             QuizQuestionType::MultipleChoice->value => $container->make(ChoiceGrader::class),
             QuizQuestionType::TrueFalse->value => $container->make(ChoiceGrader::class),
             QuizQuestionType::ShortAnswer->value => $container->make(ShortAnswerGrader::class),
+            QuizQuestionType::MultiSelect->value => $container->make(MultiSelectGrader::class),
+            QuizQuestionType::Numeric->value => $container->make(NumericGrader::class),
+            QuizQuestionType::FillInBlank->value => $container->make(FillInBlankGrader::class),
         ];
     }
 

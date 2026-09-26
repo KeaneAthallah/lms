@@ -35,8 +35,18 @@ class ShortAnswerGrader implements Grader
         return (string) $submitted;
     }
 
+    public function decode(?string $stored): mixed
+    {
+        return $stored;
+    }
+
+    public function settingsForStudent(QuizQuestion $question): array
+    {
+        return [];
+    }
+
     private function normalize(string $value): string
     {
-        return strtolower(trim($value));
+        return TextComparison::normalize($value);
     }
 }

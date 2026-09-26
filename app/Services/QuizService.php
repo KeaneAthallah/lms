@@ -11,6 +11,8 @@ use App\Models\QuizQuestion;
 use App\Models\User;
 use App\Notifications\QuizResult;
 use App\QuizAttemptStatus;
+use App\QuizQuestionType;
+use App\Support\Grading\Grader;
 use App\Support\Grading\GraderRegistry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -164,6 +166,11 @@ class QuizService
         }
 
         return $attempt->started_at->addMinutes((int) $quiz->time_limit_minutes)->isPast();
+    }
+
+    public function graderFor(QuizQuestionType $type): Grader
+    {
+        return $this->graders->for($type);
     }
 
     private function gradeQuestion(QuizQuestion $question, mixed $submitted): float

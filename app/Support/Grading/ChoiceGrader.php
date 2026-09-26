@@ -34,4 +34,14 @@ class ChoiceGrader implements Grader
     {
         return (string) ((int) $submitted);
     }
+
+    public function decode(?string $stored): mixed
+    {
+        return $stored === null ? null : (int) $stored;
+    }
+
+    public function settingsForStudent(QuizQuestion $question): array
+    {
+        return [];
+    }
 }
