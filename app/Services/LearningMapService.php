@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Course;
 use App\Models\Lesson;
 use App\Models\QuizAttempt;
 use App\Models\User;
@@ -48,7 +49,7 @@ class LearningMapService
             $courseMastery = collect($mastery['courses'])
                 ->first(fn (array $entry) => (int) $entry['course']['id'] === (int) $course->id);
 
-            $upcomingQuiz = $this->nextUpcomingQuiz($lessons, $attemptsByQuiz, $student, $insights);
+            $upcomingQuiz = $this->nextUpcomingQuiz($course, $lessons, $attemptsByQuiz, $student, $insights);
 
             $courses[] = [
                 'course' => [
@@ -83,7 +84,7 @@ class LearningMapService
      * @param  Collection<int, Collection<int, QuizAttempt>>  $attemptsByQuiz
      * @return array<string, mixed>|null
      */
-    private function nextUpcomingQuiz($lessons, $attemptsByQuiz, User $student, LearningInsightService $insights): ?array
+    private function nextUpcomingQuiz(Course $course, $lessons, $attemptsByQuiz, User $student, LearningInsightService $insights): ?array
     {
         foreach ($lessons as $lesson) {
             if ($lesson->quiz_id === null || $lesson->quiz === null) {
@@ -95,7 +96,13 @@ class LearningMapService
                 continue;
             }
 
-            $readiness = $insights->quizReadinessFor($student, $lesson->quiz);
+            // The attempts are already in hand from `loadQuizAttempts`, so hand
+            // them over rather than letting readiness re-query them per quiz.
+            // The course and its flattened lessons are handed over too: readiness
+            // would otherwise re-fetch the whole course graph per quiz, since
+            // `$lesson->quiz->course` is a different model instance from the
+            // batch-loaded `$enrollment->course` and shares no loaded relations.
+            $readiness = $insights->quizReadinessFor($student, $lesson->quiz, $attemptsByQuiz, $course, $lessons);
 
             if ($readiness !== null) {
                 return $readiness;

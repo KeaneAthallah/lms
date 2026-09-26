@@ -183,7 +183,7 @@ from `badgePalette` → those controls render with no classes at all.
 
 | # | Finding | Location |
 |---|---|---|
-| F1 | **N+1 in the learning map** — `quizReadinessFor()` runs ~6 queries per enrolled course | `LearningMapService.php:51` inside the loop at `:31` |
+| F1 | ~~**N+1 in the learning map**~~ **Fixed** — `quizReadinessFor()` re-fetched the course graph, attempts and graded submissions once per enrolled course | `LearningMapService.php:51` inside the loop at `:31` |
 | F2 | **`hasRole()`/`hasPermission()` query the DB on every call**; `isAdmin()` is called in `Gate::before`, every `role:` middleware hit and every policy → 1 query per authorization, 4 queries per `hasPermission` | `HasRoles.php:75-84,110-118`; `User.php:74-93` |
 | F3 | 5 policies each run an `Enrollment` existence query per model | `CoursePolicy.php:59`, `LessonPolicy.php:19`, `QuizPolicy.php:19,27`, `AssignmentPolicy.php:19,27`, `LessonMaterialPolicy.php:21` |
 | F4 | `Lesson::where('quiz_id',…)->first()` — unindexed (D1) | `QuizService.php:126` |
@@ -269,7 +269,7 @@ Two contract smells worth recording before they calcify:
 
 Recorded as each item lands, with the tests that prove it.
 
-Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 tests, 520 assertions**. After the Phase 2 question-type slice: **205 tests, 599 assertions**. After the question-bank slice: **238 tests, 705 assertions**. All passing, on MySQL 8 (`db_lms`) with a full `migrate` → `rollback` → `migrate` round trip verified.
+Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 tests, 520 assertions**. After the Phase 2 question-type slice: **205 tests, 599 assertions**. After the question-bank slice: **238 tests, 705 assertions**. After the learning-map N+1 fix: **239 tests, 710 assertions**. All passing, on MySQL 8 (`db_lms`) with a full `migrate` → `rollback` → `migrate` round trip verified.
 
 | # | Item | Change | Proof |
 |---|------|--------|-------|
@@ -297,6 +297,8 @@ Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 te
 | 22 | Frozen questions | A question already served in an attempt cannot be edited or deleted, from either the quiz or the bank, and `quiz_attempt_questions.quiz_question_id` is `ON DELETE RESTRICT` as a backstop. The builder disables those controls and labels the question "In use" instead of failing on save. | `QuestionBankTest` |
 | 23 | Bank builder UI | Banks are managed from `Curriculum → Question banks`; `QuizSettingsForm` covers both create and edit paths, surfaces `draw_size`/`question_bank_id` errors on their own fields, and blocks the bank switch while a quiz still owns questions because the server refuses it. | `npm run build` |
 | 24 | Detaching a bank | `InstructorQuizController::update` sets `question_bank_id` and `draw_size` explicitly. Spreading the validated payload only writes keys the client sent, so a quiz that went back to owning its questions would have kept drawing from the bank forever, and the builder's "This quiz only" control would have done nothing. | `QuestionBankTest` |
+| 25 | Learning-map N+1 (F1) | `LearningMapService` hands the batch-loaded course, its flattened lessons and its attempts to `quizReadinessFor()` instead of letting it re-derive them. The load was not a harmless repeat: `$quiz->course` and `$quiz->lesson` are separate model instances that share no loaded relations, so each course paid for its own sections/lessons/progress/attempts/submissions walk. Attempts and graded submissions are now also memoised per student. Queries for the map are flat in course count: 17 for 1 course and 47 for 4 before, 8 and 8 after. | `LearningMapTest::test_learning_map_query_count_does_not_grow_with_enrolled_courses` |
+| 26 | Upcoming-quiz passing score | The map's quiz eager load selected only `id,course_id,title,time_limit_minutes`, so the upcoming-quiz card rendered every quiz's passing score as 0%. `passing_score` is now selected, and `withCount('questions')` follows the `select()` (the reverse order silently drops the count sub-select, which made every quiz-lesson duration estimate fall back to its own `count(*)`). | `LearningMapTest::test_a_failed_quiz_is_still_offered_as_upcoming` |
 
 ### Notes and residual risk
 
@@ -308,10 +310,9 @@ Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 te
 - **A question type is a backend change first.** Adding a case to `QuizQuestionType` without a grader, a `settingsForStudent()` projection, and validation will fail loudly at the registry rather than quietly scoring every submission zero.
 - **A random draw has to clear the relation's own ordering.** `QuestionBank::questions()` orders by `sort_order` so the builder shows a stable list, and SQL honours only the first `ORDER BY`. `inRandomOrder()` on top of that looked random in the code and served every student the same first N questions; the draw uses `reorder()` instead. Any future "pick some at random" query has to do the same.
 - **A column subset on a has-many eager load must include the foreign key.** `with('courses:id,title,slug')` matches rows on `category_id`, which was not selected, and silently hydrates an empty collection rather than raising - the `withCount` total stays correct, so only the missing list gave it away. `belongsTo` subsets are safe because the key already sits on the parent row.
-- **Deliberately not done in this pass.** The learning-map N+1 (F1), certificate PDF generation, the frontend issues catalogued in §6/§7 (dark-mode tokens, stale short-answer options, `ghost`/`brand` variants, modal focus, typography, code splitting), blueprint quotas, question versioning, advanced assessment behaviour, and the gradebook.
+- **Deliberately not done in this pass.** Certificate PDF generation, the frontend issues catalogued in §6/§7 (dark-mode tokens, stale short-answer options, `ghost`/`brand` variants, modal focus, typography, code splitting), blueprint quotas, question versioning, advanced assessment behaviour, and the gradebook.
 
 ### Follow-ups worth prioritising next
 
-1. F1 learning-map N+1: `quizReadinessFor()` re-loads attempts, graded submissions, and the full course graph once per enrolled course, so a student in N courses pays roughly 6N queries for the map. Passing the already-loaded collections in from `LearningMapService` would remove most of it.
-2. Certificate PDF generation — certificates are currently data-only with no printable artifact.
-3. The frontend items in §6/§7, which are cosmetic and accessibility work rather than correctness.
+1. Certificate PDF generation — certificates are currently data-only with no printable artifact.
+2. The frontend items in §6/§7, which are cosmetic and accessibility work rather than correctness.

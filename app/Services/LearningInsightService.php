@@ -34,6 +34,30 @@ class LearningInsightService
     public const QUIZ_READY_THRESHOLD = 75;
 
     /**
+     * Flattened published lessons per course, and the student's graded work,
+     * memoised for the life of this instance.
+     *
+     * Readiness is computed per quiz, and each call needs the whole course
+     * curriculum plus every attempt and graded submission. Without this the
+     * learning map reloaded the same course graph once per quiz lesson, so a
+     * student in N courses paid for a full graph walk per quiz. Keyed by student
+     * id because these hold per-student data.
+     *
+     * @var array<string, Collection<int, Lesson>>
+     */
+    private array $lessonGraphs = [];
+
+    /**
+     * @var array<int, Collection<int, Collection<int, QuizAttempt>>>
+     */
+    private array $attemptsByStudent = [];
+
+    /**
+     * @var array<int, Collection<int, Collection<int, AssignmentSubmission>>>
+     */
+    private array $gradedSubmissionsByStudent = [];
+
+    /**
      * Build the full set of learning insights for a student.
      *
      * Every recommendation is derived deterministically from the student's own progress,
@@ -108,7 +132,7 @@ class LearningInsightService
      */
     protected function loadQuizAttempts(User $student): Collection
     {
-        return QuizAttempt::query()
+        return $this->attemptsByStudent[$student->id] ??= QuizAttempt::query()
             ->where('student_id', $student->id)
             ->whereNotNull('submitted_at')
             ->orderByDesc('submitted_at')
@@ -121,7 +145,7 @@ class LearningInsightService
      */
     protected function loadGradedSubmissions(User $student): Collection
     {
-        return AssignmentSubmission::query()
+        return $this->gradedSubmissionsByStudent[$student->id] ??= AssignmentSubmission::query()
             ->where('student_id', $student->id)
             ->where('status', SubmissionStatus::Graded->value)
             ->orderByDesc('graded_at')
@@ -340,22 +364,27 @@ class LearningInsightService
     }
 
     /**
-     * Compute the readiness state for a single quiz, mirroring the rules used by
-     * {@see buildQuizReadiness}. Returns null when the quiz is not attached to a
-     * lesson (e.g. spaced quizzes with no curriculum position).
+     * Every published lesson in a course, in the order students see them.
      *
-     * @return array<string, mixed>|null
+     * `loadMissing` rather than `load`: the learning map has already eager
+     * loaded this exact graph through {@see MasteryCalculator::loadEnrollments},
+     * so re-loading it per quiz was the bulk of the map's N+1. Callers that pass
+     * a course already in hand therefore pay nothing.
+     *
+     * The graph is filtered to one student's progress, so it is cached per
+     * student as well as per course.
+     *
+     * @return Collection<int, Lesson>
      */
-    public function quizReadinessFor(User $student, Quiz $quiz): ?array
+    protected function courseLessons(User $student, Course $course): Collection
     {
-        $lesson = $quiz->lesson;
+        $key = "{$student->id}:{$course->id}";
 
-        if ($lesson === null) {
-            return null;
+        if (isset($this->lessonGraphs[$key])) {
+            return $this->lessonGraphs[$key];
         }
 
-        $course = $quiz->course;
-        $course->load([
+        $course->loadMissing([
             'sections' => fn ($query) => $query->orderBy('sort_order')->with([
                 'lessons' => fn ($query) => $query->published()->orderBy('sort_order')->with([
                     'progress' => fn ($query) => $query->where('student_id', $student->id),
@@ -366,10 +395,45 @@ class LearningInsightService
         $lessons = collect();
 
         foreach ($course->sections as $section) {
-            foreach ($section->lessons as $courseLesson) {
-                $lessons->push($courseLesson);
+            foreach ($section->lessons as $lesson) {
+                $lessons->push($lesson);
             }
         }
+
+        return $this->lessonGraphs[$key] = $lessons;
+    }
+
+    /**
+     * Compute the readiness state for a single quiz, mirroring the rules used by
+     * {@see buildQuizReadiness}. Returns null when the quiz is not attached to a
+     * lesson (e.g. spaced quizzes with no curriculum position).
+     *
+     * Callers that already hold the course graph should pass it: `$quiz->course`
+     * and `$quiz->lesson` are lazily loaded model instances that share no loaded
+     * relations with the caller's instances, so leaving them unset re-fetches the
+     * whole course per quiz.
+     *
+     * @param  Collection<int, Collection<int, QuizAttempt>>|null  $attemptsByQuiz  already-loaded attempts, to avoid re-querying
+     * @param  Collection<int, Lesson>|null  $lessons  the course's published lessons in curriculum order
+     * @return array<string, mixed>|null
+     */
+    public function quizReadinessFor(
+        User $student,
+        Quiz $quiz,
+        ?Collection $attemptsByQuiz = null,
+        ?Course $course = null,
+        ?Collection $lessons = null,
+    ): ?array {
+        // Prefer the caller's lesson instance so its loaded progress is reused.
+        $lesson = $lessons?->first(fn (Lesson $courseLesson) => (int) $courseLesson->quiz_id === (int) $quiz->id)
+            ?? $quiz->lesson;
+
+        if ($lesson === null) {
+            return null;
+        }
+
+        $course ??= $quiz->course;
+        $lessons ??= $this->courseLessons($student, $course);
 
         $index = $lessons->search(fn (Lesson $courseLesson) => (int) $courseLesson->id === (int) $lesson->id);
 
@@ -377,11 +441,11 @@ class LearningInsightService
             return null;
         }
 
-        $lesson->load(['progress' => fn ($query) => $query->where('student_id', $student->id)]);
+        $lesson->loadMissing(['progress' => fn ($query) => $query->where('student_id', $student->id)]);
 
         $precedingLessons = $lessons->slice(0, $index);
 
-        $attemptsByQuiz = $this->loadQuizAttempts($student);
+        $attemptsByQuiz ??= $this->loadQuizAttempts($student);
         $submissionsByAssignment = $this->loadGradedSubmissions($student);
 
         $alreadyPassed = $this->quizPassed($quiz, $attemptsByQuiz);

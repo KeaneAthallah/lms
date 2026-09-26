@@ -11,6 +11,7 @@ use App\Models\QuizAttempt;
 use App\Models\User;
 use App\Services\EnrollmentService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class LearningMapTest extends TestCase
@@ -47,7 +48,7 @@ class LearningMapTest extends TestCase
             ])
         );
 
-        $quiz = Quiz::factory()->create(['course_id' => $course->id]);
+        $quiz = Quiz::factory()->create(['course_id' => $course->id, 'passing_score' => 75]);
         $lessons->last()->update(['quiz_id' => $quiz->id, 'type' => 'quiz']);
 
         return [$course, $section, $lessons, $quiz];
@@ -220,6 +221,58 @@ class LearningMapTest extends TestCase
             ->getJson('/api/learning-map')
             ->assertOk()
             ->assertJsonPath('data.courses.0.upcoming_quiz.quiz.id', $quiz->id)
+            ->assertJsonPath('data.courses.0.upcoming_quiz.quiz.passing_score', 75)
             ->assertJsonPath('data.courses.0.upcoming_quiz.state', 'ready');
+    }
+
+    public function test_learning_map_query_count_does_not_grow_with_enrolled_courses(): void
+    {
+        $student = User::factory()->student()->create();
+
+        // Registered once for the whole test: a `DB::listen` closure captures the
+        // counter by reference, so re-registering inside a loop would make every
+        // iteration increment the same variable and report compounding totals.
+        $queries = 0;
+        DB::listen(function () use (&$queries): void {
+            $queries++;
+        });
+
+        $counts = [];
+        $enrolled = 0;
+
+        while ($enrolled < 1) {
+            $this->enroll($student, $this->makeCourseWithQuiz(1)[0]);
+            $enrolled++;
+        }
+
+        // Warm-up request: a cold first request carries one-time setup queries that
+        // would otherwise be charged to the first measurement.
+        $this->actingAs($student)
+            ->getJson('/api/learning-map')
+            ->assertOk();
+
+        // The upcoming-quiz card re-derives readiness per course, which previously
+        // re-fetched each course's sections, lessons, progress and attempts. Adding
+        // courses must not add queries.
+        foreach ([1, 4] as $target) {
+            while ($enrolled < $target) {
+                $this->enroll($student, $this->makeCourseWithQuiz(1)[0]);
+                $enrolled++;
+            }
+
+            $before = $queries;
+
+            $this->actingAs($student)
+                ->getJson('/api/learning-map')
+                ->assertOk();
+
+            $counts[$target] = $queries - $before;
+        }
+
+        $this->assertSame(
+            $counts[1],
+            $counts[4],
+            "Learning map issued {$counts[1]} queries for 1 course but {$counts[4]} for 4 courses."
+        );
     }
 }

@@ -202,7 +202,14 @@ class MasteryCalculator
                             // `time_limit_minutes` is read to estimate how long an
                             // upcoming quiz takes; starving the select made the same
                             // quiz report different durations on different endpoints.
-                            'quiz:id,course_id,title,time_limit_minutes',
+                            // `passing_score` is read by the learning map's upcoming
+                            // quiz card, and omitting it reported every quiz as 0%.
+                            // `withCount` must follow `select`, otherwise the count
+                            // sub-select is dropped and the estimate falls back to a
+                            // per-lesson count query.
+                            'quiz' => fn ($quiz) => $quiz
+                                ->select('id', 'course_id', 'title', 'passing_score', 'time_limit_minutes')
+                                ->withCount('questions'),
                             'progress' => fn ($query) => $query->where('student_id', $student->id),
                         ]),
                     ]),
