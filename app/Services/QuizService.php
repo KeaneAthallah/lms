@@ -4,10 +4,12 @@ namespace App\Services;
 
 use App\Models\Grade;
 use App\Models\Lesson;
+use App\Models\QuestionBank;
 use App\Models\Quiz;
 use App\Models\QuizAnswer;
 use App\Models\QuizAttempt;
 use App\Models\QuizAttemptQuestion;
+use App\Models\QuizBlueprintRule;
 use App\Models\QuizQuestion;
 use App\Models\User;
 use App\Notifications\QuizResult;
@@ -101,16 +103,154 @@ class QuizService
             return collect();
         }
 
+        $rules = $quiz->relationLoaded('blueprintRules')
+            ? $quiz->blueprintRules
+            : $quiz->blueprintRules()->orderBy('question_type')->get();
+
+        $pickedIds = $rules->isEmpty()
+            ? $this->randomDraw($bank, max(1, (int) ($quiz->draw_size ?? 0)))
+            : $this->blueprintDraw($quiz, $bank, $rules);
+
+        return $this->loadPackedQuestions($bank, $pickedIds);
+    }
+
+    /**
+     * An unconstrained sample of the bank, in the order it will be served.
+     *
+     * @return list<int>
+     */
+    private function randomDraw(QuestionBank $bank, int $limit): array
+    {
         return $bank->questions()
-            ->with('options')
             // `reorder()` drops the relation's default `sort_order`, which would
             // otherwise win: SQL only honours the first ORDER BY, so adding
             // `inRandomOrder()` on top of it looks random in the code and serves
             // the same first N questions to every student.
             ->reorder()
             ->inRandomOrder()
-            ->limit(max(1, (int) ($quiz->draw_size ?? 0)))
+            ->limit($limit)
+            ->pluck('id')
+            ->all();
+    }
+
+    /**
+     * Draw the blueprint's quotas, then fill whatever is left of `draw_size` from
+     * the types the blueprint did not name.
+     *
+     * The fill deliberately avoids the pinned types. Filling from the whole bank
+     * would let a paper of eight draw "two multiple-choice" and then serve four
+     * anyway, so the blueprint would describe nothing: the author asking for a
+     * shape gets the shape.
+     *
+     * A quota is still a floor on availability, not a promise. If the bank holds
+     * fewer questions of a type than the rule asks for, the draw serves what
+     * exists rather than failing the attempt, the same way a bank smaller than
+     * `draw_size` does.
+     *
+     * Each step is its own query rather than one query over the whole bank, so
+     * the cost is bounded by the size of the blueprint (at most six quotas plus
+     * two fills) instead of by how much the instructor has written.
+     *
+     * @param  Collection<int, QuizBlueprintRule>  $rules
+     * @return list<int>
+     */
+    private function blueprintDraw(Quiz $quiz, QuestionBank $bank, Collection $rules): array
+    {
+        $pickedIds = [];
+        $pinnedTypes = [];
+        $pinned = 0;
+
+        foreach ($rules as $rule) {
+            $quota = max(0, (int) $rule->question_count);
+
+            if ($quota === 0) {
+                continue;
+            }
+
+            $batch = $bank->questions()
+                ->where('type', $rule->question_type->value)
+                // A question already claimed by an earlier quota must not be
+                // counted twice, or a bank with overlapping rules would serve
+                // the same item twice in one paper.
+                ->when($pickedIds !== [], fn ($query) => $query->whereNotIn('id', $pickedIds))
+                ->reorder()
+                ->inRandomOrder()
+                ->limit($quota)
+                ->pluck('id')
+                ->all();
+
+            $pickedIds = [...$pickedIds, ...$batch];
+            $pinnedTypes[] = $rule->question_type->value;
+            $pinned += count($batch);
+        }
+
+        $remaining = max(1, (int) ($quiz->draw_size ?? 0)) - $pinned;
+
+        if ($remaining <= 0) {
+            return $pickedIds;
+        }
+
+        $fill = $this->pickFrom($bank, $remaining, $pickedIds, $pinnedTypes);
+        $pickedIds = [...$pickedIds, ...$fill];
+
+        // If the blueprint names every type the bank holds and a quota came up
+        // short, there is nothing left to fill with. A paper shorter than the
+        // instructor asked for is the worse outcome, so the shortfall is topped
+        // up from anything remaining rather than left on the table.
+        if (count($fill) < $remaining) {
+            $pickedIds = [
+                ...$pickedIds,
+                ...$this->pickFrom($bank, $remaining - count($fill), $pickedIds, []),
+            ];
+        }
+
+        return $pickedIds;
+    }
+
+    /**
+     * @param  list<int>  $excludeIds
+     * @param  list<string>  $excludeTypes
+     * @return list<int>
+     */
+    private function pickFrom(QuestionBank $bank, int $limit, array $excludeIds, array $excludeTypes): array
+    {
+        if ($limit <= 0) {
+            return [];
+        }
+
+        return $bank->questions()
+            ->when($excludeIds !== [], fn ($query) => $query->whereNotIn('id', $excludeIds))
+            ->when($excludeTypes !== [], fn ($query) => $query->whereNotIn('type', $excludeTypes))
+            ->reorder()
+            ->inRandomOrder()
+            ->limit($limit)
+            ->pluck('id')
+            ->all();
+    }
+
+    /**
+     * Hydrate the drawn ids with their options, served in a random order.
+     *
+     * Randomising the order matters as much as randomising the selection: a
+     * blueprint is applied type by type, so serving it in rule order would hand
+     * every student the same predictable run of multiple-choice followed by
+     * numeric, and the paper would read as sorted rather than sampled. That also
+     * makes the order the draw picked them in irrelevant here.
+     *
+     * An empty `$pickedIds` needs no special case: `whereIn` with no ids matches
+     * nothing, so a bank that cannot satisfy any quota serves an empty paper
+     * instead of the whole bank.
+     *
+     * @param  list<int>  $pickedIds
+     * @return Collection<int, QuizQuestion>
+     */
+    private function loadPackedQuestions(QuestionBank $bank, array $pickedIds): Collection
+    {
+        return $bank->questions()
+            ->with('options')
+            ->whereIn('id', $pickedIds)
             ->get()
+            ->shuffle()
             ->values();
     }
 

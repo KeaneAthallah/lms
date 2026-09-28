@@ -62,6 +62,29 @@ class Quiz extends Model
         return $this->hasMany(QuizQuestion::class)->orderBy('sort_order');
     }
 
+    /**
+     * Per-type quotas shaping the bank draw. Empty for a quiz without a bank, or
+     * for one that draws a uniformly random sample.
+     */
+    public function blueprintRules(): HasMany
+    {
+        return $this->hasMany(QuizBlueprintRule::class);
+    }
+
+    /**
+     * Questions the blueprint pins down, as a floor rather than a total: the draw
+     * still serves `draw_size` when the quotas leave room and the bank has the
+     * questions to fill it.
+     */
+    public function blueprintQuestionCount(): int
+    {
+        $rules = $this->relationLoaded('blueprintRules')
+            ? $this->blueprintRules
+            : $this->blueprintRules()->get();
+
+        return (int) $rules->sum('question_count');
+    }
+
     public function attempts(): HasMany
     {
         return $this->hasMany(QuizAttempt::class);

@@ -4,6 +4,8 @@ namespace App\Http\Requests\Concerns;
 
 use App\Models\QuestionBank;
 use App\Models\Quiz;
+use App\QuizQuestionType;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
@@ -32,13 +34,75 @@ trait QuizFieldRules
             'status' => ['nullable', Rule::in(['active', 'inactive'])],
             'question_bank_id' => ['nullable', 'integer', $this->bankBelongsToCourseRule()],
             'draw_size' => ['nullable', 'integer', 'min:1'],
+            'blueprint' => ['nullable', 'array'],
+            'blueprint.*.type' => ['required', Rule::in($this->questionTypes())],
+            // Zero is accepted, not a quota: clearing a field in the form is the
+            // natural way to drop a rule, and the row is then not stored. The
+            // unique index and the duplicate check would otherwise turn an
+            // ordinary edit into a validation error.
+            'blueprint.*.count' => ['required', 'integer', 'min:0'],
         ];
     }
+
+    /**
+     * @return list<string>
+     */
+    private function questionTypes(): array
+    {
+        return array_column(QuizQuestionType::cases(), 'value');
+    }
+
+    /**
+     * The submitted quotas, normalised to a list that remembers where each row
+     * came from.
+     *
+     * The index is kept so a rejected quota is reported on the row the author
+     * actually typed it into, rather than on a key they never sent. A duplicated
+     * type cannot reach the table, which has a unique index on
+     * `(quiz_id, question_type)`, and is reported as a validation error rather
+     * than surfacing as a failed insert.
+     *
+     * @return list<array{index: int|string, type: string, count: int}>
+     */
+    private function requestedBlueprint(): array
+    {
+        $requested = [];
+        $seen = [];
+
+        foreach ((array) $this->input('blueprint', []) as $index => $row) {
+            if (! is_array($row) || ! isset($row['type'])) {
+                continue;
+            }
+
+            $type = (string) $row['type'];
+            $count = isset($row['count']) ? (int) $row['count'] : 0;
+
+            if (isset($seen[$type])) {
+                $this->blueprintDuplicates[] = $type;
+
+                continue;
+            }
+
+            $seen[$type] = true;
+
+            if ($count > 0) {
+                $requested[] = ['index' => $index, 'type' => $type, 'count' => $count];
+            }
+        }
+
+        return $requested;
+    }
+
+    /**
+     * @var list<string>
+     */
+    private array $blueprintDuplicates = [];
 
     public function withValidator($validator): void
     {
         $validator->after(function (Validator $validator): void {
             $this->validateDrawConfiguration($validator);
+            $this->validateBlueprint($validator);
         });
     }
 
@@ -109,6 +173,66 @@ trait QuizFieldRules
         }
 
         $this->validateNoAttachedQuestions($validator);
+    }
+
+    /**
+     * A blueprint is only meaningful for a quiz that draws a bank, and its quotas
+     * have to describe a paper the bank can actually produce.
+     */
+    private function validateBlueprint(Validator $validator): void
+    {
+        $requested = $this->requestedBlueprint();
+
+        foreach ($this->blueprintDuplicates as $type) {
+            $validator->errors()->add('blueprint', "This question type is listed more than once: {$type}.");
+        }
+
+        if ($requested === []) {
+            return;
+        }
+
+        $bankId = $this->input('question_bank_id');
+
+        if ($bankId === null) {
+            $validator->errors()->add('blueprint', 'A blueprint only applies to a quiz that draws from a question bank.');
+
+            return;
+        }
+
+        $total = array_sum(array_column($requested, 'count'));
+        $drawSize = (int) $this->input('draw_size');
+
+        // The leftovers of the paper are filled from the types the blueprint did
+        // not name, so quotas above the paper length are not a shortfall but a
+        // contradiction: there is no room left to serve them.
+        if ($total > $drawSize) {
+            $validator->errors()->add(
+                'blueprint',
+                "The blueprint asks for {$total} questions but each attempt only draws {$drawSize}. Lower the quotas or raise the questions per attempt.",
+            );
+
+            return;
+        }
+
+        $bank = QuestionBank::query()->find($bankId);
+
+        $available = $bank?->questions()
+            ->select('type', DB::raw('count(*) as aggregate'))
+            ->groupBy('type')
+            ->pluck('aggregate', 'type') ?? collect();
+
+        foreach ($requested as $rule) {
+            $stock = (int) ($available[$rule['type']] ?? 0);
+
+            if ($rule['count'] > $stock) {
+                $validator->errors()->add(
+                    "blueprint.{$rule['index']}.count",
+                    $stock === 0
+                        ? 'That question bank has no questions of this type.'
+                        : "That question bank only has {$stock} question(s) of this type.",
+                );
+            }
+        }
     }
 
     /**

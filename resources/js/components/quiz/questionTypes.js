@@ -10,6 +10,23 @@
 
 export const BLANK_PATTERN = /\{\{\s*(\d+)\s*\}\}/g;
 
+/**
+ * The question types a quiz can hold, in the order the authoring form offers
+ * them.
+ *
+ * Kept in one place because a blueprint row and a question row are two views of
+ * the same enum: a list here that drifts from the one in the authoring select
+ * would let an author set a quota for a type they cannot write.
+ */
+export const QUESTION_TYPES = [
+    { value: 'multiple_choice', label: 'Multiple choice' },
+    { value: 'multi_select', label: 'Multiple select' },
+    { value: 'true_false', label: 'True / False' },
+    { value: 'short_answer', label: 'Short answer' },
+    { value: 'numeric', label: 'Numeric' },
+    { value: 'fill_in_blank', label: 'Fill in the blank' },
+];
+
 /** Blank indexes present in a fill-in-the-blank question, in written order. */
 export function blankIndexes(questionText = '') {
     const found = String(questionText).matchAll(BLANK_PATTERN);

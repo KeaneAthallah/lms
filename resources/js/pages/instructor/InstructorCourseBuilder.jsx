@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api, { apiError } from '../../api';
 import { Alert, Badge, Breadcrumbs, Button, ButtonLink, ConfirmDialog, EmptyState, Field, Icon, Input, Modal, PageHeader, PageLoader, Section, Select, StatusBadge, Textarea, useToast } from '../../components/ui';
-import { blankIndexes } from '../../components/quiz/questionTypes';
+import { blankIndexes, QUESTION_TYPES } from '../../components/quiz/questionTypes';
 
 const lessonMeta = {
     text: { label: 'Text lesson', icon: 'doc' },
@@ -649,6 +649,7 @@ function QuizModal({ open, onClose, courseSlug, data, run, busy, toast, confirm 
                     time_limit_minutes: q.time_limit_minutes ?? '',
                     question_bank_id: q.question_bank_id ?? '',
                     draw_size: q.draw_size ?? '',
+                    blueprint: q.blueprint ?? [],
                 });
                 setQuestions(q.questions ?? []);
                 setErrors({});
@@ -668,16 +669,19 @@ function QuizModal({ open, onClose, courseSlug, data, run, busy, toast, confirm 
     const settingsPayload = (base) => {
         const next = { ...(base ?? {}) };
         // The server treats a missing bank as "owns its own questions", so the
-        // bank keys must be dropped rather than sent as empty strings.
+        // bank keys must be dropped rather than sent as empty strings. The
+        // blueprint goes with them: quotas only mean something for a bank's draw.
         if (next.question_bank_id) {
             return {
                 ...next,
                 question_bank_id: Number(next.question_bank_id),
                 draw_size: Number(next.draw_size) || undefined,
+                blueprint: next.blueprint ?? [],
             };
         }
         delete next.question_bank_id;
         delete next.draw_size;
+        delete next.blueprint;
         return next;
     };
 
@@ -754,7 +758,7 @@ function QuizModal({ open, onClose, courseSlug, data, run, busy, toast, confirm 
 
     const set = (key) => (e) => setSettings((f) => ({ ...f, [key]: ['time_limit_minutes', 'draw_size'].includes(key) && e.target.value === '' ? '' : Number(e.target.value) || e.target.value }));
 
-    const defaultNew = { title: '', instructions: '', passing_score: 70, attempts_allowed: 1, time_limit_minutes: '', question_bank_id: '', draw_size: '' };
+    const defaultNew = { title: '', instructions: '', passing_score: 70, attempts_allowed: 1, time_limit_minutes: '', question_bank_id: '', draw_size: '', blueprint: [] };
     const effectiveSettings = quizId ? settings : { ...defaultNew, ...(settings ?? {}) };
     const bankId = effectiveSettings?.question_bank_id || '';
     const bank = banks.find((b) => String(b.id) === String(bankId)) ?? null;
@@ -823,6 +827,15 @@ function QuizModal({ open, onClose, courseSlug, data, run, busy, toast, confirm 
                         {bank && Number(settings.draw_size) > bank.questions_count ? (
                             <Alert tone="warning" icon="info" className="mt-3">
                                 The draw size is larger than the bank holds. Add more questions or lower the draw size.
+                            </Alert>
+                        ) : null}
+                        {(settings.blueprint ?? []).length > 0 ? (
+                            <Alert tone="info" icon="filter" className="mt-3">
+                                Blueprint:{' '}
+                                {(settings.blueprint ?? [])
+                                    .map((rule) => `${rule.count} ${QUESTION_TYPES.find((t) => t.value === rule.type)?.label ?? rule.type}`)
+                                    .join(', ')}
+                                . The rest of the paper is filled from the other types.
                             </Alert>
                         ) : null}
                     </div>
@@ -933,6 +946,24 @@ function QuizSettingsForm({ settings, setSettings, onSubmit, saving, submitLabel
     const usesBank = Boolean(bankId);
     const bank = banks.find((b) => String(b.id) === String(bankId)) ?? null;
 
+    const quotaFor = (type) => settings.blueprint?.find((rule) => rule.type === type)?.count ?? '';
+
+    const setQuota = (type, raw) => {
+        const others = (settings.blueprint ?? []).filter((rule) => rule.type !== type);
+        const count = Number(raw);
+
+        // A blank field removes the quota rather than storing a zero, so the
+        // form does not send rules the server would only discard.
+        setSettings((f) => ({
+            ...f,
+            blueprint: Number.isFinite(count) && count > 0 ? [...others, { type, count }] : others,
+        }));
+    };
+
+    const quotaTotal = (settings.blueprint ?? []).reduce((sum, rule) => sum + (Number(rule.count) || 0), 0);
+    const drawSize = Number(settings.draw_size) || 0;
+    const oversubscribed = usesBank && drawSize > 0 && quotaTotal > drawSize;
+
     return (
         <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
@@ -966,6 +997,10 @@ function QuizSettingsForm({ settings, setSettings, onSubmit, saving, submitLabel
                                     ...f,
                                     question_bank_id: next === 'bank' ? (f.question_bank_id || banks[0]?.id || '') : '',
                                     draw_size: next === 'bank' ? (f.draw_size || '') : '',
+                                    // Quotas belong to the bank being drawn from, so
+                                    // switching source starts the blueprint over
+                                    // rather than carrying one bank's mix onto another.
+                                    blueprint: next === 'bank' ? (f.blueprint ?? []) : [],
                                 }));
                             }}
                         >
@@ -979,7 +1014,7 @@ function QuizSettingsForm({ settings, setSettings, onSubmit, saving, submitLabel
                             <Select
                                 value={bankId}
                                 disabled={questionCount > 0 || banks.length === 0}
-                                onChange={(e) => setSettings((f) => ({ ...f, question_bank_id: e.target.value, draw_size: '' }))}
+                                onChange={(e) => setSettings((f) => ({ ...f, question_bank_id: e.target.value, draw_size: '', blueprint: [] }))}
                             >
                                 {banks.length === 0 ? <option value="">No banks yet</option> : null}
                                 {banks.map((b) => (
@@ -1027,6 +1062,46 @@ function QuizSettingsForm({ settings, setSettings, onSubmit, saving, submitLabel
                         This quiz still owns {questionCount} {questionCount === 1 ? 'question' : 'questions'} while
                         also drawing from a bank. Saving will be refused until they are removed.
                     </p>
+                ) : null}
+
+                {usesBank ? (
+                    <div className="mt-4 border-t border-slate-200 pt-4">
+                        <p className="text-sm font-medium text-slate-700">Blueprint</p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                            Pin how many questions of each type the draw must serve. The remaining
+                            {drawSize > quotaTotal && quotaTotal > 0 ? ` ${drawSize - quotaTotal}` : ''} of the paper is
+                            filled from the types you leave blank.
+                        </p>
+
+                        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                            {QUESTION_TYPES.map((type) => {
+                                const ruleIndex = (settings.blueprint ?? []).findIndex((rule) => rule.type === type.value);
+                                const error = errors[`blueprint.${ruleIndex}.count`]?.[0];
+
+                                return (
+                                    <Field key={type.value} label={type.label} error={error}>
+                                        <Input
+                                            type="number"
+                                            min="0"
+                                            max={bank?.questions_count}
+                                            placeholder="—"
+                                            value={quotaFor(type.value)}
+                                            onChange={(e) => setQuota(type.value, e.target.value)}
+                                        />
+                                    </Field>
+                                );
+                            })}
+                        </div>
+
+                        {oversubscribed ? (
+                            <p className="mt-2 text-xs text-red-600">
+                                The blueprint pins {quotaTotal} questions but each attempt only draws {drawSize}. There
+                                is no room to serve them.
+                            </p>
+                        ) : null}
+
+                        {errors.blueprint?.[0] ? <p className="mt-2 text-xs text-red-600">{errors.blueprint[0]}</p> : null}
+                    </div>
                 ) : null}
             </div>
 
@@ -1392,12 +1467,11 @@ function QuestionForm({ initial, onCancel, onSubmit, saving }) {
                                 set('settings', {});
                             }}
                         >
-                            <option value="multiple_choice">Multiple choice</option>
-                            <option value="multi_select">Multiple select</option>
-                            <option value="true_false">True / False</option>
-                            <option value="short_answer">Short answer</option>
-                            <option value="numeric">Numeric</option>
-                            <option value="fill_in_blank">Fill in the blank</option>
+                            {QUESTION_TYPES.map((type) => (
+                                <option key={type.value} value={type.value}>
+                                    {type.label}
+                                </option>
+                            ))}
                         </Select>
                     </Field>
                     <Field label="Points">

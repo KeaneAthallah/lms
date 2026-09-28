@@ -8,10 +8,12 @@ use App\Http\Requests\Quiz\UpdateQuizRequest;
 use App\Models\Course;
 use App\Models\Lesson;
 use App\Models\Quiz;
+use App\Models\QuizBlueprintRule;
 use App\Models\QuizOption;
 use App\Models\QuizQuestion;
 use App\QuizQuestionType;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class InstructorQuizController extends Controller
@@ -27,10 +29,16 @@ class InstructorQuizController extends Controller
             ]);
         }
 
-        $quiz = $course->quizzes()->create([
-            ...$request->safe(),
-            'time_limit_minutes' => $request->filled('time_limit_minutes') ? (int) $request->input('time_limit_minutes') : null,
-        ]);
+        $quiz = DB::transaction(function () use ($course, $request): Quiz {
+            $quiz = $course->quizzes()->create([
+                ...$request->safe()->except(['blueprint']),
+                'time_limit_minutes' => $request->filled('time_limit_minutes') ? (int) $request->input('time_limit_minutes') : null,
+            ]);
+
+            $this->syncBlueprint($quiz, $request->input('blueprint'));
+
+            return $quiz;
+        });
 
         $lesson->update(['type' => 'quiz', 'quiz_id' => $quiz->id]);
 
@@ -46,6 +54,7 @@ class InstructorQuizController extends Controller
                 'lesson_id' => $lesson->id,
                 'question_bank_id' => $quiz->question_bank_id,
                 'draw_size' => $quiz->draw_size,
+                'blueprint' => $this->blueprintPayload($quiz),
             ],
         ], 201);
     }
@@ -55,21 +64,30 @@ class InstructorQuizController extends Controller
         $this->authorize('manage', $course);
         abort_unless((int) $quiz->course_id === (int) $course->id, 404);
 
-        $quiz->update([
-            ...$request->safe()->except(['time_limit_minutes', 'question_bank_id', 'draw_size']),
-            'time_limit_minutes' => $request->filled('time_limit_minutes') ? (int) $request->input('time_limit_minutes') : null,
-            // These form requests describe the whole quiz (`title`,
-            // `passing_score` and `attempts_allowed` are all required), so an
-            // absent bank means "go back to owning its own questions" rather
-            // than "leave the bank alone". Spreading the validated payload alone
-            // would make a bank impossible to detach.
-            'question_bank_id' => $request->input('question_bank_id') === null
-                ? null
-                : (int) $request->input('question_bank_id'),
-            'draw_size' => $request->input('draw_size') === null
-                ? null
-                : (int) $request->input('draw_size'),
-        ]);
+        // The quiz row and its blueprint have to move together: a half-applied
+        // save would leave quotas on a quiz whose bank was detached, or drop the
+        // quotas from a quiz that is still drawing from one.
+        DB::transaction(function () use ($request, $quiz): void {
+            $quiz->update([
+                ...$request->safe()->except(['time_limit_minutes', 'question_bank_id', 'draw_size', 'blueprint']),
+                'time_limit_minutes' => $request->filled('time_limit_minutes') ? (int) $request->input('time_limit_minutes') : null,
+                // These form requests describe the whole quiz (`title`,
+                // `passing_score` and `attempts_allowed` are all required), so an
+                // absent bank means "go back to owning its own questions" rather
+                // than "leave the bank alone". Spreading the validated payload
+                // alone would make a bank impossible to detach.
+                'question_bank_id' => $request->input('question_bank_id') === null
+                    ? null
+                    : (int) $request->input('question_bank_id'),
+                'draw_size' => $request->input('draw_size') === null
+                    ? null
+                    : (int) $request->input('draw_size'),
+            ]);
+
+            // Sent unconditionally, so detaching a bank also drops the quotas
+            // that only meant something for that bank's draw.
+            $this->syncBlueprint($quiz, $request->input('blueprint'));
+        });
 
         return response()->json([
             'message' => 'Quiz updated.',
@@ -81,8 +99,56 @@ class InstructorQuizController extends Controller
                 'passing_score' => (float) $quiz->passing_score,
                 'question_bank_id' => $quiz->question_bank_id,
                 'draw_size' => $quiz->draw_size,
+                'blueprint' => $this->blueprintPayload($quiz->fresh()),
             ],
         ]);
+    }
+
+    /**
+     * Replace the quiz's quotas with the submitted set.
+     *
+     * Replace rather than diff, because the rules are a set the author edits as a
+     * whole: a quota dropped from the form has to disappear, and there is no
+     * meaningful "last updated" per rule to reconcile.
+     *
+     * @param  mixed  $blueprint
+     */
+    private function syncBlueprint(Quiz $quiz, $blueprint): void
+    {
+        $quiz->blueprintRules()->delete();
+
+        foreach ((array) $blueprint as $rule) {
+            if (! is_array($rule) || ! isset($rule['type'], $rule['count'])) {
+                continue;
+            }
+
+            $count = (int) $rule['count'];
+
+            if ($count < 1) {
+                continue;
+            }
+
+            $quiz->blueprintRules()->create([
+                'question_type' => (string) $rule['type'],
+                'question_count' => $count,
+            ]);
+        }
+    }
+
+    /**
+     * @return list<array{type: string, count: int}>
+     */
+    private function blueprintPayload(Quiz $quiz): array
+    {
+        return $quiz->blueprintRules()
+            ->orderBy('question_type')
+            ->get()
+            ->map(fn (QuizBlueprintRule $rule): array => [
+                'type' => $rule->question_type->value,
+                'count' => (int) $rule->question_count,
+            ])
+            ->values()
+            ->all();
     }
 
     /**
@@ -109,6 +175,7 @@ class InstructorQuizController extends Controller
                     'id' => $quiz->questionBank->id,
                     'title' => $quiz->questionBank->title,
                 ] : null,
+                'blueprint' => $this->blueprintPayload($quiz),
                 'lesson_id' => $quiz->lesson?->id,
                 'lesson_title' => $quiz->lesson?->title,
                 'questions' => $quiz->questions->map(fn (QuizQuestion $question): array => [

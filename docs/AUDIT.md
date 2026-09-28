@@ -43,7 +43,7 @@ Missing (by phase):
 
 | Gap | Phase |
 |---|---|
-| Question bank, question types beyond MC/TF/SA, pools, blueprints, versioning | 2 |
+| Question bank, question types beyond MC/TF/SA, pools, blueprints, versioning | 2 (banks, pools and blueprints done; versioning left) |
 | Assessment engine: autosave, resume, review mode, partial credit, negative marking, rubrics, exam windows, late rules | 2 |
 | Gradebook: categories, weights, dropped grades, overrides, CSV/XLSX, audit trail | 2 |
 | Notes, bookmarks, video timestamped notes, course reviews, tags, announcements, FAQ | 3 |
@@ -269,7 +269,7 @@ Two contract smells worth recording before they calcify:
 
 Recorded as each item lands, with the tests that prove it.
 
-Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 tests, 520 assertions**. After the Phase 2 question-type slice: **205 tests, 599 assertions**. After the question-bank slice: **238 tests, 705 assertions**. After the learning-map N+1 fix: **239 tests, 710 assertions**. All passing, on MySQL 8 (`db_lms`) with a full `migrate` → `rollback` → `migrate` round trip verified.
+Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 tests, 520 assertions**. After the Phase 2 question-type slice: **205 tests, 599 assertions**. After the question-bank slice: **238 tests, 705 assertions**. After the learning-map N+1 fix: **239 tests, 710 assertions**. After the quiz blueprint slice: **267 tests, 788 assertions**. All passing, on MySQL 8 (`db_lms`) with a full `migrate` → `rollback` → `migrate` round trip verified.
 
 | # | Item | Change | Proof |
 |---|------|--------|-------|
@@ -299,6 +299,8 @@ Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 te
 | 24 | Detaching a bank | `InstructorQuizController::update` sets `question_bank_id` and `draw_size` explicitly. Spreading the validated payload only writes keys the client sent, so a quiz that went back to owning its questions would have kept drawing from the bank forever, and the builder's "This quiz only" control would have done nothing. | `QuestionBankTest` |
 | 25 | Learning-map N+1 (F1) | `LearningMapService` hands the batch-loaded course, its flattened lessons and its attempts to `quizReadinessFor()` instead of letting it re-derive them. The load was not a harmless repeat: `$quiz->course` and `$quiz->lesson` are separate model instances that share no loaded relations, so each course paid for its own sections/lessons/progress/attempts/submissions walk. Attempts and graded submissions are now also memoised per student. Queries for the map are flat in course count: 17 for 1 course and 47 for 4 before, 8 and 8 after. | `LearningMapTest::test_learning_map_query_count_does_not_grow_with_enrolled_courses` |
 | 26 | Upcoming-quiz passing score | The map's quiz eager load selected only `id,course_id,title,time_limit_minutes`, so the upcoming-quiz card rendered every quiz's passing score as 0%. `passing_score` is now selected, and `withCount('questions')` follows the `select()` (the reverse order silently drops the count sub-select, which made every quiz-lesson duration estimate fall back to its own `count(*)`). | `LearningMapTest::test_a_failed_quiz_is_still_offered_as_upcoming` |
+| 27 | Quiz blueprints (A4) | `quiz_blueprint_rules` gives a quiz per-type quotas over its bank: a paper that asked for a shape no longer comes out as a uniform sample. `draw_size` stays the paper length and the quotas are exact, with the leftover slots filled from the types the blueprint left blank, so a blueprint that could be inflated by the fill would describe nothing. A quota the bank cannot supply degrades to what exists and tops up from the rest, because a truncated paper is worse than an overshot quota. | `QuizBlueprintTest` |
+| 28 | Blueprint authoring | The builder edits quotas per type alongside the draw size, reuses one `QUESTION_TYPES` list with the question form, and a server-side duplicate check backs the unique index on `(quiz_id, question_type)`. Quotas are dropped with the bank and the quiz row and its rules are saved in one transaction, so a half-applied save cannot leave quotas on a quiz that no longer draws. | `QuizBlueprintTest` |
 
 ### Notes and residual risk
 
@@ -310,7 +312,7 @@ Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 te
 - **A question type is a backend change first.** Adding a case to `QuizQuestionType` without a grader, a `settingsForStudent()` projection, and validation will fail loudly at the registry rather than quietly scoring every submission zero.
 - **A random draw has to clear the relation's own ordering.** `QuestionBank::questions()` orders by `sort_order` so the builder shows a stable list, and SQL honours only the first `ORDER BY`. `inRandomOrder()` on top of that looked random in the code and served every student the same first N questions; the draw uses `reorder()` instead. Any future "pick some at random" query has to do the same.
 - **A column subset on a has-many eager load must include the foreign key.** `with('courses:id,title,slug')` matches rows on `category_id`, which was not selected, and silently hydrates an empty collection rather than raising - the `withCount` total stays correct, so only the missing list gave it away. `belongsTo` subsets are safe because the key already sits on the parent row.
-- **Deliberately not done in this pass.** Certificate PDF generation, the frontend issues catalogued in §6/§7 (dark-mode tokens, stale short-answer options, `ghost`/`brand` variants, modal focus, typography, code splitting), blueprint quotas, question versioning, advanced assessment behaviour, and the gradebook.
+- **Deliberately not done in this pass.** Certificate PDF generation, the frontend issues catalogued in §6/§7 (dark-mode tokens, stale short-answer options, `ghost`/`brand` variants, modal focus, typography, code splitting), question versioning, the rest of the advanced assessment engine (autosave, resume, negative marking, rubrics, exam windows, late rules), and the gradebook.
 
 ### Follow-ups worth prioritising next
 
