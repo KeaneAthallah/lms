@@ -23,6 +23,8 @@ class QuizOption extends Model
 
     public function question(): BelongsTo
     {
-        return $this->belongsTo(QuizQuestion::class);
+        // Named explicitly for the same reason as `QuizAnswer::question()`:
+        // guessed, it becomes `question_id`, which is not a column here.
+        return $this->belongsTo(QuizQuestion::class, 'quiz_question_id');
     }
 }

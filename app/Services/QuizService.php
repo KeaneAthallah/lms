@@ -18,6 +18,7 @@ use App\QuizQuestionType;
 use App\Support\Grading\Grader;
 use App\Support\Grading\GraderRegistry;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Collection as SupportCollection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -37,6 +38,12 @@ class QuizService
         return $quiz->attemptsFor($student) < (int) $quiz->attempts_allowed;
     }
 
+    /**
+     * Begin an attempt, or hand back the one already in progress.
+     *
+     * @throws ValidationException when the student has no attempts left, or the
+     *                             quiz has nothing to serve
+     */
     public function start(Quiz $quiz, User $student): QuizAttempt
     {
         // The attempt limit is a check-then-insert, so the quiz row is locked for
@@ -44,6 +51,22 @@ class QuizService
         // "one attempt used" and both insert, exceeding `attempts_allowed`.
         return DB::transaction(function () use ($quiz, $student): QuizAttempt {
             Quiz::whereKey($quiz->id)->lockForUpdate()->first();
+
+            // An attempt the student can still answer is resumed, never replaced.
+            // Minting a second paper here was how a time limit came to be
+            // advisory: the abandoned attempt stayed `in_progress` forever, so it
+            // never counted against `attempts_allowed` and Start kept handing
+            // over fresh full-duration draws.
+            if ($live = $quiz->openAttemptFor($student)) {
+                if (! $this->hasExpired($live, $quiz)) {
+                    return $live;
+                }
+
+                // Out of time, and nobody was there to notice. Close it here so
+                // the saved work is scored and recorded rather than left open and
+                // invisible, and so it counts against `attempts_allowed`.
+                $this->closeExpired($live);
+            }
 
             if (! $this->canStart($quiz, $student)) {
                 throw ValidationException::withMessages([
@@ -76,6 +99,112 @@ class QuizService
 
             return $attempt;
         });
+    }
+
+    /**
+     * Store answers the student has given but not yet submitted.
+     *
+     * The rows are written to `quiz_answers` ungraded, so a draft is a row with
+     * no verdict on it and `submit()` overwrites it with the graded result. One
+     * table means one source of truth: there is no second copy to fall out of
+     * step with the first, and the unique (attempt, question) index makes the
+     * upsert idempotent, which is what lets a debounced client retry a save it
+     * never saw the response to.
+     *
+     * @param  array<int, array{question_id: int, answer: mixed}>  $answers
+     *
+     * @throws ValidationException when the attempt is graded or out of time
+     */
+    public function saveDrafts(QuizAttempt $attempt, array $answers): QuizAttempt
+    {
+        // Same lock as `submit()`: a save landing after the final submit would
+        // otherwise blank the graded answer it was racing.
+        //
+        // The rejection is decided inside the transaction and raised outside it.
+        // Throwing from within would roll the close back with everything else,
+        // which is exactly what the expired branch below needs to keep.
+        $rejection = DB::transaction(function () use ($attempt, $answers): ?string {
+            $locked = QuizAttempt::whereKey($attempt->getKey())
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            // `isGraded()`, not the status, for the same reason `submit()` uses
+            // it: an expired attempt is graded, so a status check would let a
+            // save overwrite the result.
+            if ($locked->isGraded()) {
+                return 'submitted';
+            }
+
+            if ($this->hasExpired($locked)) {
+                // Late save: score what did get saved. Without the close the
+                // drafts would sit here ungraded until some later request
+                // noticed, and the student would never see the score for the
+                // time they did spend.
+                $this->closeExpired($locked);
+
+                return 'expired';
+            }
+
+            // The frozen set, for the same reason grading uses it: a question
+            // the student was never served has no row to grade, and one deleted
+            // from the quiz mid-attempt must not be resurrected as a draft.
+            $questions = $locked->questions()->with('options')->get()->keyBy('id');
+
+            foreach ($answers as $item) {
+                $questionId = (int) ($item['question_id'] ?? 0);
+
+                // A question outside the frozen set is dropped rather than
+                // rejected, so one bad id cannot cost the student the rest of
+                // their work. Grading never reads the row, so storing it would
+                // buy nothing.
+                if (! $questionId || ! $questions->has($questionId)) {
+                    continue;
+                }
+
+                QuizAnswer::updateOrCreate(
+                    ['quiz_attempt_id' => $locked->id, 'quiz_question_id' => $questionId],
+                    [
+                        'answer' => $this->serializeAnswer($questions->get($questionId), $item['answer'] ?? null),
+                        'is_correct' => null,
+                        'points_earned' => null,
+                    ],
+                );
+            }
+
+            return null;
+        });
+
+        if ($rejection !== null) {
+            throw ValidationException::withMessages([
+                'attempt' => [$rejection === 'submitted'
+                    ? 'This attempt has already been submitted.'
+                    : 'The time limit for this quiz has expired.'],
+            ]);
+        }
+
+        return $attempt->refresh();
+    }
+
+    /**
+     * The saved answers for an unfinished attempt, decoded the way the client
+     * holds them, keyed by question id.
+     *
+     * Decoding through the grader rather than passing the stored string back is
+     * what lets the client treat a resumed attempt exactly like a fresh one: a
+     * multi-select comes back as an array and a fill-in-the-blank as a map, not
+     * as the JSON text the database holds.
+     *
+     * @return array<int, mixed>
+     */
+    public function draftAnswers(QuizAttempt $attempt): array
+    {
+        return $attempt->answers()
+            ->with('question')
+            ->get()
+            ->mapWithKeys(fn (QuizAnswer $answer): array => [
+                $answer->quiz_question_id => $this->graders->for($answer->question->type)->decode($answer->answer),
+            ])
+            ->all();
     }
 
     /**
@@ -288,106 +417,160 @@ class QuizService
     {
         // Grading is a read-then-write over the attempt, its answers, the grade
         // ledger and lesson progress. Locking the attempt row makes the
-        // `isCompleted()` guard atomic, so a double submit cannot write a second
+        // `submitted_at` guard atomic, so a double submit cannot write a second
         // set of answers, re-notify the student, or complete the lesson twice.
         return DB::transaction(function () use ($attempt, $submission): QuizAttempt {
             $attempt = QuizAttempt::whereKey($attempt->getKey())
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            $quiz = $attempt->quiz;
-
-            // The frozen set, not `$quiz->questions`: a bank quiz owns no
-            // questions at all, and a fixed quiz's list can be edited while a
-            // student is mid-attempt. Grading the live list would score against
-            // a paper the student was never shown.
-            $questions = $attempt->questions()->with('options')->get();
-
-            if ($attempt->isCompleted()) {
+            // `submitted_at`, not the status: an attempt that ran out of time is
+            // still graded, so it is `expired` rather than `completed` and a
+            // status check would wave a second submit straight through.
+            if ($attempt->isGraded()) {
                 throw ValidationException::withMessages([
                     'attempt' => ['This attempt has already been submitted.'],
                 ]);
             }
 
-            if ($this->hasExpired($attempt, $quiz)) {
-                $attempt->update(['status' => QuizAttemptStatus::Expired->value]);
+            return $this->gradeAttempt($attempt, $submission['questions'] ?? []);
+        });
+    }
 
-                throw ValidationException::withMessages([
-                    'attempt' => ['The time limit for this quiz has expired.'],
-                ]);
-            }
+    /**
+     * Close an attempt whose clock ran out while nobody was watching, and score
+     * whatever the student had saved.
+     *
+     * Nothing sweeps these rows, so this runs wherever an expired attempt is
+     * noticed: starting another one, or a save that lands too late. Grading from
+     * the drafts means a student who closed the tab at 29:58 keeps the work, and
+     * the attempt lands in the gradebook rather than silently never existing.
+     */
+    private function closeExpired(QuizAttempt $attempt): QuizAttempt
+    {
+        // No payload: whatever was autosaved is the whole submission.
+        return $this->gradeAttempt($attempt, []);
+    }
 
-            $answersByQuestion = collect($submission['questions'] ?? [])
-                ->keyBy(fn (array $item): int => (int) ($item['question_id'] ?? 0));
+    /**
+     * Grade the attempt and settle everything that hangs off the result.
+     *
+     * Shared by the final submit and by {@see closeExpired()} so that a timed-out
+     * attempt is recorded, notified and ledgered exactly like a submitted one.
+     * The only difference is the status it lands on, which is what tells a reader
+     * the student did not get to finish.
+     *
+     * @param  array<int, array{question_id: int, answer: mixed}>  $submitted
+     */
+    private function gradeAttempt(QuizAttempt $attempt, array $submitted): QuizAttempt
+    {
+        $quiz = $attempt->quiz;
+        $expired = $this->hasExpired($attempt, $quiz);
 
-            $totalEarned = 0.0;
-            $totalPossible = 0.0;
+        // The frozen set, not `$quiz->questions`: a bank quiz owns no
+        // questions at all, and a fixed quiz's list can be edited while a
+        // student is mid-attempt. Grading the live list would score against
+        // a paper the student was never shown.
+        $questions = $attempt->questions()->with('options')->get();
 
-            foreach ($questions as $question) {
-                $submitted = $answersByQuestion->get($question->id)['answer'] ?? null;
-                $earned = $this->gradeQuestion($question, $submitted);
+        $answersByQuestion = collect($submitted)
+            ->keyBy(fn (array $item): int => (int) ($item['question_id'] ?? 0));
 
-                $totalEarned += $earned;
-                $totalPossible += (float) $question->points;
+        // Anything the client did not send falls back to the last autosave.
+        // Autosave is debounced, so the most recent keystroke is normally in
+        // flight when the student hits Submit; grading from the payload
+        // alone would score against the copy from a second ago.
+        $drafts = $attempt->answers()->get()->keyBy('quiz_question_id');
 
-                QuizAnswer::updateOrCreate(
-                    ['quiz_attempt_id' => $attempt->id, 'quiz_question_id' => $question->id],
-                    [
-                        'answer' => $this->serializeAnswer($question, $submitted),
-                        'is_correct' => $earned > 0,
-                        'points_earned' => $earned,
-                    ],
-                );
-            }
+        $totalEarned = 0.0;
+        $totalPossible = 0.0;
 
-            $percentage = $totalPossible > 0 ? round(($totalEarned / $totalPossible) * 100, 2) : 0.0;
-            $passed = $percentage >= (float) $quiz->passing_score;
+        foreach ($questions as $question) {
+            $answer = $this->effectiveAnswer($question, $answersByQuestion, $drafts);
+            $earned = $this->gradeQuestion($question, $answer);
 
-            $attempt->update([
-                'status' => QuizAttemptStatus::Completed->value,
-                'submitted_at' => now(),
-                'score' => round($totalEarned, 2),
-                'score_percentage' => $percentage,
-                'passed' => $passed,
-            ]);
+            $totalEarned += $earned;
+            $totalPossible += (float) $question->points;
 
-            // Record in the unified grade ledger (unique per source).
-            Grade::updateOrCreate(
-                ['source_type' => QuizAttempt::class, 'source_id' => $attempt->id],
+            QuizAnswer::updateOrCreate(
+                ['quiz_attempt_id' => $attempt->id, 'quiz_question_id' => $question->id],
                 [
-                    'student_id' => $attempt->student_id,
-                    'course_id' => $quiz->course_id,
-                    'type' => 'quiz',
-                    'score' => round($totalEarned, 2),
-                    'max_score' => round($totalPossible, 2),
-                    'percentage' => $percentage,
-                    'graded_at' => now(),
+                    'answer' => $this->serializeAnswer($question, $answer),
+                    'is_correct' => $earned > 0,
+                    'points_earned' => $earned,
                 ],
             );
+        }
 
-            $student = $attempt->student;
-            $student->notify(new QuizResult($attempt));
+        $percentage = $totalPossible > 0 ? round(($totalEarned / $totalPossible) * 100, 2) : 0.0;
+        $passed = $percentage >= (float) $quiz->passing_score;
 
-            if ($passed) {
-                $lesson = Lesson::where('quiz_id', $quiz->id)->first();
-                if ($lesson) {
-                    $this->progress->completeLesson($lesson, $student);
-                }
+        $attempt->update([
+            'status' => ($expired ? QuizAttemptStatus::Expired : QuizAttemptStatus::Completed)->value,
+            'submitted_at' => now(),
+            'score' => round($totalEarned, 2),
+            'score_percentage' => $percentage,
+            'passed' => $passed,
+        ]);
+
+        // Record in the unified grade ledger (unique per source).
+        Grade::updateOrCreate(
+            ['source_type' => QuizAttempt::class, 'source_id' => $attempt->id],
+            [
+                'student_id' => $attempt->student_id,
+                'course_id' => $quiz->course_id,
+                'type' => 'quiz',
+                'score' => round($totalEarned, 2),
+                'max_score' => round($totalPossible, 2),
+                'percentage' => $percentage,
+                'graded_at' => now(),
+            ],
+        );
+
+        $student = $attempt->student;
+        $student->notify(new QuizResult($attempt));
+
+        if ($passed) {
+            $lesson = Lesson::where('quiz_id', $quiz->id)->first();
+            if ($lesson) {
+                $this->progress->completeLesson($lesson, $student);
             }
+        }
 
-            return $attempt->refresh()->load(['answers', 'questions.options']);
-        });
+        return $attempt->refresh()->load(['answers', 'questions.options']);
     }
 
     public function hasExpired(QuizAttempt $attempt, ?Quiz $quiz = null): bool
     {
         $quiz ??= $attempt->quiz;
 
-        if (! $quiz->time_limit_minutes) {
-            return false;
+        return $quiz->deadlineFor($attempt)?->isPast() ?? false;
+    }
+
+    /**
+     * The answer to grade this question from: the submitted value if the client
+     * sent one, otherwise the last autosaved draft, otherwise nothing.
+     *
+     * Presence in the payload is what decides, not truthiness, so a student who
+     * deliberately cleared a question submits a blank rather than being handed
+     * back the draft they just erased.
+     *
+     * @param  SupportCollection<int, array{answer: mixed}>  $submitted
+     * @param  SupportCollection<int, QuizAnswer>  $drafts
+     */
+    private function effectiveAnswer(QuizQuestion $question, SupportCollection $submitted, SupportCollection $drafts): mixed
+    {
+        if ($submitted->has($question->id)) {
+            return $submitted->get($question->id)['answer'] ?? null;
         }
 
-        return $attempt->started_at->addMinutes((int) $quiz->time_limit_minutes)->isPast();
+        $draft = $drafts->get($question->id);
+
+        if (! $draft) {
+            return null;
+        }
+
+        return $this->graders->for($question->type)->decode($draft->answer);
     }
 
     public function graderFor(QuizQuestionType $type): Grader

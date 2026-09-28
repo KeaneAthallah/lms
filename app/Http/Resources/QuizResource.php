@@ -34,6 +34,18 @@ class QuizResource extends JsonResource
                 'course_slug' => $this->course->slug ?? null,
             ]),
             'attempts_used' => $user ? $this->attemptsFor($user) : 0,
+            // A half-finished paper, so the overview can offer to resume it
+            // rather than to start over. An attempt past its deadline is not
+            // offered: the student's work on it is already lost, and calling it
+            // resumable would promise something clicking it cannot deliver.
+            'live_attempt' => $this->when(
+                $user !== null && ($live = $this->resumableAttemptFor($user)) !== null,
+                fn (): array => [
+                    'id' => $live->id,
+                    'started_at' => $live->started_at?->toISOString(),
+                    'expires_at' => $this->deadlineFor($live)?->toISOString(),
+                ],
+            ),
             'best_score' => $user ? ($this->bestAttemptFor($user)?->score_percentage) : null,
             'has_passed' => $user ? $this->attempts()->where('student_id', $user->id)->where('passed', true)->exists() : null,
         ];

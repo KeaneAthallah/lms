@@ -7,6 +7,29 @@ import QuestionReview from '../components/quiz/QuestionReview';
 import QuestionText from '../components/quiz/QuestionText';
 import { isAnswered } from '../components/quiz/questionTypes';
 
+/**
+ * How long to wait after the last keystroke before writing to the server.
+ *
+ * Long enough that a student thinking through a question types one save rather
+ * than one per character, short enough that closing the tab immediately after
+ * answering still feels like it kept the work.
+ */
+const AUTOSAVE_DELAY_MS = 1000;
+
+/**
+ * Whether the answers on screen are on the server yet.
+ *
+ * Only worth showing once there is something to report: an untimed quiz the
+ * student has not touched yet would otherwise open on a permanent "saved".
+ */
+const saveLabel = {
+    idle: '',
+    dirty: '· saving…',
+    saving: '· saving…',
+    saved: '· saved',
+    error: '· not saved — your answers will be sent when you submit',
+};
+
 function formatTime(seconds) {
     if (seconds <= 0) return '0:00';
     const m = Math.floor(seconds / 60);
@@ -103,7 +126,18 @@ export default function QuizPage() {
     const [busy, setBusy] = useState(false);
     const [timeLeft, setTimeLeft] = useState(null);
     const [confirmOpen, setConfirmOpen] = useState(false);
+    const [saveState, setSaveState] = useState('idle'); // idle | dirty | saving | saved | error
     const timerRef = useRef(null);
+    const saveTimerRef = useRef(null);
+    const answersRef = useRef({});
+    // Read inside the unmount and visibilitychange handlers, which run outside
+    // the render that closed the quiz. Without it a save would fire after the
+    // final submit and come back as "already submitted".
+    const runningRef = useRef(false);
+    const autoSubmittedRef = useRef(false);
+
+    runningRef.current = mode === 'running';
+    answersRef.current = answers;
 
     useEffect(() => {
         api.get(`/api/quizzes/${id}`)
@@ -125,8 +159,15 @@ export default function QuizPage() {
             const { data } = await api.post(`/api/quizzes/${id}/start`);
             setAttempt({ id: data.attempt.id, expires_at: data.expires_at });
             setQuestions(data.questions ?? []);
-            setAnswers({});
+            // A resumed attempt opens with its saved answers already in place.
+            // Hydrating from the server rather than starting blank is the whole
+            // point: a student who closed the tab mid-quiz gets their paper back.
+            setAnswers(data.answers ?? {});
+            setSaveState(data.resumed ? 'saved' : 'idle');
+            autoSubmittedRef.current = false;
             setMode('running');
+
+            if (data.resumed) toast('Resumed your attempt.', 'info');
         } catch (err) {
             toast(apiError(err), 'error');
         } finally {
@@ -144,6 +185,7 @@ export default function QuizPage() {
                     answer,
                 }));
                 const { data } = await api.post(`/api/quiz-attempts/${attempt.id}/submit`, { questions: payload });
+                runningRef.current = false;
                 setResult(data);
                 setMode('result');
             } catch (err) {
@@ -156,23 +198,89 @@ export default function QuizPage() {
         [attempt, clearTimer, toast],
     );
 
+    /**
+     * Push every answer held in the browser to the server.
+     *
+     * The whole set rather than just what changed, because a draft row is keyed
+     * by (attempt, question) so a re-save is idempotent, and resending is the
+     * cheapest way to be sure the server holds the same paper the student sees.
+     * The alternative -- tracking dirty ids -- saves a few hundred bytes and
+     * loses answers every time a save races the next edit.
+     */
+    const flushAnswers = useCallback(async () => {
+        if (saveTimerRef.current) {
+            clearTimeout(saveTimerRef.current);
+            saveTimerRef.current = null;
+        }
+
+        if (!runningRef.current || !attempt?.id) return;
+
+        const payload = Object.entries(answersRef.current).map(([qid, answer]) => ({
+            question_id: Number(qid),
+            answer,
+        }));
+
+        setSaveState('saving');
+
+        try {
+            await api.patch(`/api/quiz-attempts/${attempt.id}/answers`, { answers: payload });
+            setSaveState('saved');
+        } catch {
+            // Silent on purpose. The common failure is a save that raced the
+            // final submit, which is not the student's problem and does not
+            // deserve a toast. A real failure shows as the "not saved" hint, and
+            // the submit path re-sends every answer anyway, so nothing is lost.
+            setSaveState('error');
+        }
+    }, [attempt]);
+
+    // The two moments a debounce cannot cover: the component going away, and the
+    // tab being backgrounded or closed. Both are a normal part of taking a quiz,
+    // and a lost debounce window in either is work the student would have to
+    // redo by hand.
+    useEffect(() => {
+        const onHidden = () => {
+            if (document.visibilityState === 'hidden') flushAnswers();
+        };
+
+        document.addEventListener('visibilitychange', onHidden);
+
+        return () => {
+            document.removeEventListener('visibilitychange', onHidden);
+            flushAnswers();
+        };
+    }, [flushAnswers]);
+
     useEffect(() => {
         if (mode !== 'running' || !attempt?.expires_at) return;
         const tick = () => {
             const remaining = Math.floor((new Date(attempt.expires_at).getTime() - Date.now()) / 1000);
             setTimeLeft(remaining);
-            if (remaining <= 0) {
+
+            // Hand the timer in rather than throwing the paper away. Sending
+            // the student back to the overview discarded every answer and left
+            // the attempt open, so they could start a fresh full-length one and
+            // repeat until they passed. The server scores what was saved, so the
+            // deadline is the end of their time and not the end of their work.
+            if (remaining <= 0 && !autoSubmittedRef.current) {
+                autoSubmittedRef.current = true;
                 clearTimer();
-                setMode('intro');
-                toast('Time is up for this attempt.', 'info');
+                toast('Time is up — submitting your saved answers.', 'info');
+                submit(answersRef.current);
             }
         };
         tick();
         timerRef.current = setInterval(tick, 1000);
         return clearTimer;
-    }, [mode, attempt, clearTimer, toast]);
+    }, [mode, attempt, clearTimer, submit, toast]);
 
-    const setAnswer = (qid, value) => setAnswers((prev) => ({ ...prev, [qid]: value }));
+    const setAnswer = (qid, value) => {
+        setAnswers((prev) => ({ ...prev, [qid]: value }));
+        setSaveState('dirty');
+
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(flushAnswers, AUTOSAVE_DELAY_MS);
+    };
 
     // Counted per question rather than by key count: an empty multi-select array
     // and a fill-in-the-blank with one blank left empty are both stored but not
@@ -237,6 +345,7 @@ export default function QuizPage() {
                 <div className="flex items-center justify-between">
                     <p className="text-sm text-slate-500">
                         {answered} of {questions.length} answered
+                        <span className="ml-2 text-slate-400">{saveLabel[saveState]}</span>
                     </p>
                     <Button
                         variant="dark"
@@ -315,9 +424,29 @@ export default function QuizPage() {
                         <span />
                     )}
                     <Button onClick={start} loading={busy} size="lg" icon="play">
-                        Start quiz
+                        {quiz.live_attempt ? 'Resume quiz' : 'Start quiz'}
                     </Button>
                 </div>
+
+                {quiz.live_attempt ? (
+                    <p className="mt-4 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                        You have an attempt in progress
+                        {quiz.live_attempt.expires_at ? (
+                            <>
+                                {' '}
+                                that closes{' '}
+                                <span className="font-semibold">
+                                    {new Date(quiz.live_attempt.expires_at).toLocaleTimeString([], {
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                    })}
+                                </span>
+                            </>
+                        ) : null}
+                        . Your answers are saved as you go, and resuming keeps the time you have left — it does not
+                        restart the clock.
+                    </p>
+                ) : null}
             </div>
         </div>
     );

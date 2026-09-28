@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Carbon;
 
 class Quiz extends Model
 {
@@ -122,12 +123,88 @@ class Quiz extends Model
         return (int) ($this->questions_count ?? $this->questions()->count());
     }
 
+    /**
+     * How many of the student's allowed attempts are spent.
+     *
+     * An expired attempt counts. It did not used to, and that made a time limit
+     * advisory: a student whose clock ran out left an `in_progress` row that
+     * nothing ever closed, so it was never counted here and Start handed them
+     * another full-duration paper. They could repeat that until they passed.
+     * The attempt is still graded from whatever was autosaved, so the time
+     * spent is not thrown away -- it just cannot be spent again.
+     */
     public function attemptsFor(User $student): int
     {
         return $this->attempts()
             ->where('student_id', $student->id)
-            ->where('status', QuizAttemptStatus::Completed->value)
+            ->whereIn('status', [
+                QuizAttemptStatus::Completed->value,
+                QuizAttemptStatus::Expired->value,
+                // An attempt still in progress has spent its slot too. It has
+                // not been closed, which usually only means nothing has looked
+                // at it yet, and `start()` either resumes or closes it before
+                // reading this number -- so counting it cannot block a student
+                // from picking up their own unfinished paper.
+                QuizAttemptStatus::InProgress->value,
+            ])
             ->count();
+    }
+
+    /**
+     * When this attempt's clock ran out, or null when the quiz is untimed.
+     *
+     * The one place the deadline is worked out. The countdown the client renders,
+     * the resume offer on the overview and the check that grades a submission all
+     * have to agree, and three copies of `started_at + time_limit_minutes` is
+     * three chances to disagree.
+     *
+     * Returns a copy because `addMinutes()` mutates the Carbon it is called on,
+     * and `started_at` is a cast attribute: adding the limit to it in place would
+     * move the attempt's start time forward on the in-memory model.
+     */
+    public function deadlineFor(QuizAttempt $attempt): ?Carbon
+    {
+        if (! $this->time_limit_minutes) {
+            return null;
+        }
+
+        return $attempt->started_at->copy()->addMinutes((int) $this->time_limit_minutes);
+    }
+
+    /**
+     * The student's unfinished attempt, whether or not it still has time.
+     *
+     * `start()` needs this to find the row it has to close when the clock ran
+     * out, so it cannot be the resumable filter.
+     */
+    public function openAttemptFor(User $student): ?QuizAttempt
+    {
+        return $this->attempts()
+            ->where('student_id', $student->id)
+            ->where('status', QuizAttemptStatus::InProgress->value)
+            ->orderByDesc('id')
+            ->first();
+    }
+
+    /**
+     * The attempt the overview should offer to pick up again.
+     *
+     * A row left `in_progress` by a student who closed the tab is not resumable
+     * even though it is still open: there is nothing here to sweep it up, so its
+     * deadline can pass unnoticed and it would sit open forever. Offering it
+     * would promise work that clicking it cannot deliver.
+     */
+    public function resumableAttemptFor(User $student): ?QuizAttempt
+    {
+        $attempt = $this->openAttemptFor($student);
+
+        if (! $attempt) {
+            return null;
+        }
+
+        $deadline = $this->deadlineFor($attempt);
+
+        return $deadline === null || $deadline->isFuture() ? $attempt : null;
     }
 
     public function bestAttemptFor(User $student): ?QuizAttempt

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\Quiz\SaveQuizAnswersRequest;
 use App\Http\Requests\Quiz\SubmitQuizRequest;
 use App\Http\Resources\QuizResource;
 use App\Models\Quiz;
@@ -42,6 +43,8 @@ class QuizStudentController extends Controller
         // questions they started with rather than a fresh draw.
         $attempt->load('questions.options');
 
+        $resumed = ! $attempt->wasRecentlyCreated;
+
         return response()->json([
             // Deliberately a hand-built payload, not the model. Serialising the
             // attempt serialises its loaded `questions.options` too, which hands
@@ -71,11 +74,25 @@ class QuizStudentController extends Controller
                     ]),
                 ];
             }),
+            // The work already done on this attempt, so a resumed paper opens
+            // with the student's answers in place rather than blank.
+            'answers' => $resumed ? $this->quizzes->draftAnswers($attempt) : [],
+            'resumed' => $resumed,
             'time_limit_minutes' => $attempt->quiz->time_limit_minutes,
-            'expires_at' => $attempt->quiz->time_limit_minutes
-                ? $attempt->started_at->addMinutes((int) $attempt->quiz->time_limit_minutes)->toISOString()
-                : null,
-        ], 201);
+            'expires_at' => $attempt->quiz->deadlineFor($attempt)?->toISOString(),
+        ], $resumed ? 200 : 201);
+    }
+
+    public function saveAnswers(SaveQuizAnswersRequest $request, QuizAttempt $attempt)
+    {
+        $this->authorize('submit', $attempt);
+
+        $this->quizzes->saveDrafts($attempt, $request->validated()['answers'] ?? []);
+
+        // 204: the client has nothing to do with the result. It wants to know
+        // the save landed, and echoing the drafts back would only invite it to
+        // render a value it already has.
+        return response()->noContent();
     }
 
     public function submit(SubmitQuizRequest $request, QuizAttempt $attempt)

@@ -157,9 +157,9 @@ class QuizBlueprintTest extends TestCase
      *
      * @return array<string, int>
      */
-    private function serveTypeCounts(Quiz $quiz): array
+    private function serveTypeCounts(Quiz $quiz, ?User $student = null): array
     {
-        $response = $this->actingAs($this->student)
+        $response = $this->actingAs($student ?? $this->student)
             ->postJson("/api/quizzes/{$quiz->id}/start")
             ->assertCreated();
 
@@ -328,12 +328,24 @@ class QuizBlueprintTest extends TestCase
         $bank = $this->makeBank(['multiple_choice' => 10, 'numeric' => 10]);
 
         $quiz = $this->makeBankQuiz($bank, 6);
-        $this->assertSame(6, array_sum($this->serveTypeCounts($quiz)));
+
+        // A second student rather than a second Start. An attempt already in
+        // progress is resumed instead of replaced, so one student is only ever
+        // served one paper at a time -- and independence between draws is a claim
+        // about students, not about clicking twice.
+        $second = User::factory()->student()->create();
+        (new EnrollmentService)->enroll($second, $this->course);
+
+        $first = $this->serveTypeCounts($quiz);
+        $other = $this->serveTypeCounts($quiz, $second);
+
+        $this->assertSame(6, array_sum($first));
+        $this->assertSame(6, array_sum($other));
 
         // With no blueprint, a large draw from a balanced bank should not come
         // out as a single type every time.
-        $types = $this->serveTypeCounts($quiz);
-        $this->assertGreaterThan(1, count($types), 'An unconstrained draw served a single question type.');
+        $this->assertGreaterThan(1, count($first), 'An unconstrained draw served a single question type.');
+        $this->assertGreaterThan(1, count($other), 'An unconstrained draw served a single question type.');
     }
 
     // ------------------------------------------------------------- validation

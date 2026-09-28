@@ -68,8 +68,18 @@ class QuizAttempt extends Model
             ->orderBy('quiz_attempt_questions.sort_order');
     }
 
-    public function isCompleted(): bool
+    /**
+     * Whether the attempt has been graded and can no longer be answered.
+     *
+     * Deliberately not a status check. An attempt that ran out of time is graded
+     * from whatever it managed to save, so it lands on `expired` rather than
+     * `completed` -- and a status check would read that as still open, letting a
+     * second submit through or a late autosave overwrite the result. The
+     * question being asked here is "is there a result yet?", and the answer is on
+     * the timestamp.
+     */
+    public function isGraded(): bool
     {
-        return $this->status === QuizAttemptStatus::Completed;
+        return $this->submitted_at !== null;
     }
 }

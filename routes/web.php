@@ -111,6 +111,7 @@ Route::prefix('api')->group(function (): void {
         Route::get('/quizzes/{quiz}/readiness', [QuizReadinessController::class, 'show']);
         Route::get('/quizzes/{quiz}/recovery', [QuizRecoveryController::class, 'show']);
         Route::get('/quiz-attempts/{attempt}', [QuizStudentController::class, 'showAttempt']);
+        Route::patch('/quiz-attempts/{attempt}/answers', [QuizStudentController::class, 'saveAnswers']);
         Route::post('/quiz-attempts/{attempt}/submit', [QuizStudentController::class, 'submit']);
 
         Route::get('/grades', [GradeController::class, 'index']);

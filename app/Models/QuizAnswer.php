@@ -29,6 +29,10 @@ class QuizAnswer extends Model
 
     public function question(): BelongsTo
     {
-        return $this->belongsTo(QuizQuestion::class);
+        // Named explicitly. Left to guess, `belongsTo` derives the key from the
+        // relation name and hands back `question_id`, which is not a column on
+        // this table -- so the query came back `where id is null` rather than
+        // failing loudly.
+        return $this->belongsTo(QuizQuestion::class, 'quiz_question_id');
     }
 }

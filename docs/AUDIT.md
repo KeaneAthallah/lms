@@ -44,7 +44,7 @@ Missing (by phase):
 | Gap | Phase |
 |---|---|
 | Question bank, question types beyond MC/TF/SA, pools, blueprints, versioning | 2 (banks, pools and blueprints done; versioning left) |
-| Assessment engine: autosave, resume, review mode, partial credit, negative marking, rubrics, exam windows, late rules | 2 |
+| Assessment engine: autosave, resume, review mode, partial credit, negative marking, rubrics, exam windows, late rules | 2 (autosave, resume and enforced time limits done; review mode, negative marking, rubrics, exam windows and late rules left) |
 | Gradebook: categories, weights, dropped grades, overrides, CSV/XLSX, audit trail | 2 |
 | Notes, bookmarks, video timestamped notes, course reviews, tags, announcements, FAQ | 3 |
 | Discussions/threads/mentions/moderation, live sessions, calendar, attendance | 4 |
@@ -269,7 +269,7 @@ Two contract smells worth recording before they calcify:
 
 Recorded as each item lands, with the tests that prove it.
 
-Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 tests, 520 assertions**. After the Phase 2 question-type slice: **205 tests, 599 assertions**. After the question-bank slice: **238 tests, 705 assertions**. After the learning-map N+1 fix: **239 tests, 710 assertions**. After the quiz blueprint slice: **267 tests, 788 assertions**. All passing, on MySQL 8 (`db_lms`) with a full `migrate` → `rollback` → `migrate` round trip verified.
+Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 tests, 520 assertions**. After the Phase 2 question-type slice: **205 tests, 599 assertions**. After the question-bank slice: **238 tests, 705 assertions**. After the learning-map N+1 fix: **239 tests, 710 assertions**. After the quiz blueprint slice: **267 tests, 788 assertions**. After the autosave and resume slice: **294 tests, 847 assertions**. All passing, on MySQL 8 (`db_lms`) with a full `migrate` → `rollback` → `migrate` round trip verified.
 
 | # | Item | Change | Proof |
 |---|------|--------|-------|
@@ -301,6 +301,8 @@ Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 te
 | 26 | Upcoming-quiz passing score | The map's quiz eager load selected only `id,course_id,title,time_limit_minutes`, so the upcoming-quiz card rendered every quiz's passing score as 0%. `passing_score` is now selected, and `withCount('questions')` follows the `select()` (the reverse order silently drops the count sub-select, which made every quiz-lesson duration estimate fall back to its own `count(*)`). | `LearningMapTest::test_a_failed_quiz_is_still_offered_as_upcoming` |
 | 27 | Quiz blueprints (A4) | `quiz_blueprint_rules` gives a quiz per-type quotas over its bank: a paper that asked for a shape no longer comes out as a uniform sample. `draw_size` stays the paper length and the quotas are exact, with the leftover slots filled from the types the blueprint left blank, so a blueprint that could be inflated by the fill would describe nothing. A quota the bank cannot supply degrades to what exists and tops up from the rest, because a truncated paper is worse than an overshot quota. | `QuizBlueprintTest` |
 | 28 | Blueprint authoring | The builder edits quotas per type alongside the draw size, reuses one `QUESTION_TYPES` list with the question form, and a server-side duplicate check backs the unique index on `(quiz_id, question_type)`. Quotas are dropped with the bank and the quiz row and its rules are saved in one transaction, so a half-applied save cannot leave quotas on a quiz that no longer draws. | `QuizBlueprintTest` |
+| 29 | Quiz autosave, resume and enforced time limits | Answers are written to `quiz_answers` ungraded (`points_earned` nullable, so a draft is distinguishable from a graded zero) and a second Start resumes the open attempt instead of minting a second paper, with the frozen paper and saved answers restored. A time limit used to be advisory: the client discarded the answers at zero, the attempt stayed `in_progress` forever, and only `completed` attempts counted, so a student could start again for a fresh full-duration draw indefinitely. Now an attempt past its deadline is closed, graded from what was saved, recorded in the gradebook, and counts against `attempts_allowed`. | `QuizAttemptResumeTest` |
+| 30 | Autosave round-tripping | A saved answer is decoded through the grader on resume, so a multi-select returns a list and a cleared choice returns null rather than option `0`. The client debounces writes, flushes on unmount and on tab-hide, and submits at the deadline instead of throwing the paper away. `QuizAnswer::question()` and `QuizOption::question()` were missing their foreign key and resolved to a non-existent `question_id` column, so they returned null instead of failing loudly. | `QuizAttemptResumeTest` |
 
 ### Notes and residual risk
 
@@ -312,7 +314,7 @@ Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 te
 - **A question type is a backend change first.** Adding a case to `QuizQuestionType` without a grader, a `settingsForStudent()` projection, and validation will fail loudly at the registry rather than quietly scoring every submission zero.
 - **A random draw has to clear the relation's own ordering.** `QuestionBank::questions()` orders by `sort_order` so the builder shows a stable list, and SQL honours only the first `ORDER BY`. `inRandomOrder()` on top of that looked random in the code and served every student the same first N questions; the draw uses `reorder()` instead. Any future "pick some at random" query has to do the same.
 - **A column subset on a has-many eager load must include the foreign key.** `with('courses:id,title,slug')` matches rows on `category_id`, which was not selected, and silently hydrates an empty collection rather than raising - the `withCount` total stays correct, so only the missing list gave it away. `belongsTo` subsets are safe because the key already sits on the parent row.
-- **Deliberately not done in this pass.** Certificate PDF generation, the frontend issues catalogued in §6/§7 (dark-mode tokens, stale short-answer options, `ghost`/`brand` variants, modal focus, typography, code splitting), question versioning, the rest of the advanced assessment engine (autosave, resume, negative marking, rubrics, exam windows, late rules), and the gradebook.
+- **Deliberately not done in this pass.** Certificate PDF generation, the frontend issues catalogued in §6/§7 (dark-mode tokens, stale short-answer options, `ghost`/`brand` variants, modal focus, typography, code splitting), question versioning, the rest of the advanced assessment engine (review mode, negative marking, rubrics, exam windows, late rules), and the gradebook.
 
 ### Follow-ups worth prioritising next
 
