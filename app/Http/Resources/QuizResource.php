@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Models\QuizAttempt;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -48,6 +49,23 @@ class QuizResource extends JsonResource
             ),
             'best_score' => $user ? ($this->bestAttemptFor($user)?->score_percentage) : null,
             'has_passed' => $user ? $this->attempts()->where('student_id', $user->id)->where('passed', true)->exists() : null,
+            // The student's own recent attempts, so the overview can point at a
+            // review of each graded one. Only rows the student owns are ever
+            // loaded in `show()`, and a row is reviewable exactly when it has
+            // been graded -- which for an expired attempt is true even though
+            // its status says something other than `completed`.
+            'attempts' => $this->whenLoaded('attempts', fn (): array => $this->attempts
+                ->map(fn (QuizAttempt $attempt): array => [
+                    'id' => $attempt->id,
+                    'status' => $attempt->status->value,
+                    'started_at' => $attempt->started_at?->toISOString(),
+                    'submitted_at' => $attempt->submitted_at?->toISOString(),
+                    'score' => $attempt->score !== null ? (float) $attempt->score : null,
+                    'score_percentage' => $attempt->score_percentage !== null ? (float) $attempt->score_percentage : null,
+                    'passed' => $attempt->passed,
+                    'reviewable' => $attempt->isGraded(),
+                ])
+                ->all()),
         ];
     }
 }

@@ -18,6 +18,7 @@ import ChallengePage from './pages/Challenge';
 import Portfolio from './pages/Portfolio';
 import Learn from './pages/Learn';
 import QuizPage from './pages/Quiz';
+import QuizReview from './pages/QuizReview';
 import AssignmentPage from './pages/Assignment';
 import Grades from './pages/Grades';
 import Certificates from './pages/Certificates';
@@ -84,6 +85,7 @@ createRoot(document.getElementById('app')).render(
                         element={<ProtectedRoute>{inLayout(<Learn />)}</ProtectedRoute>}
                     />
                     <Route path="/quiz/:id" element={<ProtectedRoute>{inLayout(<QuizPage />)}</ProtectedRoute>} />
+                    <Route path="/quiz/attempts/:attemptId" element={<ProtectedRoute>{inLayout(<QuizReview />)}</ProtectedRoute>} />
                     <Route
                         path="/assignment/:id"
                         element={<ProtectedRoute>{inLayout(<AssignmentPage />)}</ProtectedRoute>}

@@ -188,6 +188,11 @@ export default function QuizPage() {
                 runningRef.current = false;
                 setResult(data);
                 setMode('result');
+                // The overview the result page links back to is only as fresh as
+                // the last fetch. It was loaded before this attempt existed, so
+                // without this the "Your attempts" list and best score would be
+                // stale until a manual reload.
+                api.get(`/api/quizzes/${id}`).then(({ data: fresh }) => setQuiz(fresh.data)).catch(() => {});
             } catch (err) {
                 toast(apiError(err), 'error');
                 setMode('intro');
@@ -447,9 +452,51 @@ export default function QuizPage() {
                         restart the clock.
                     </p>
                 ) : null}
+
+                {quiz.attempts?.length ? (
+                    <div className="mt-6 border-t border-slate-100 pt-5">
+                        <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-400">Your attempts</h2>
+                        <ul className="divide-y divide-slate-100">
+                            {quiz.attempts.map((attempt) => (
+                                <li key={attempt.id} className="flex items-center justify-between gap-3 py-2.5">
+                                    <div className="flex items-center gap-2.5">
+                                        <Badge color={attemptReviewColor(attempt)}>
+                                            {attempt.status === 'in_progress' ? 'In progress' : attempt.status === 'expired' ? 'Timed out' : 'Graded'}
+                                        </Badge>
+                                        <span className="text-sm text-slate-500">
+                                            {formatDateUppercase(attempt.submitted_at ?? attempt.started_at)}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        {attempt.score_percentage !== null ? (
+                                            <span className="text-sm font-semibold text-slate-900">{attempt.score_percentage}%</span>
+                                        ) : null}
+                                        {attempt.reviewable ? (
+                                            <ButtonLink to={`/quiz/attempts/${attempt.id}`} size="sm" variant="secondary" icon="doc">
+                                                Review
+                                            </ButtonLink>
+                                        ) : null}
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                ) : null}
             </div>
         </div>
     );
+}
+
+function attemptReviewColor(attempt) {
+    if (attempt.status === 'in_progress') return 'blue';
+    if (attempt.status === 'expired') return 'amber';
+    if (attempt.passed) return 'green';
+    return 'red';
+}
+
+function formatDateUppercase(value) {
+    if (!value) return '—';
+    return new Date(value).toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
 /**
@@ -477,7 +524,15 @@ function pointsBadgeColor(question) {
     return 'amber';
 }
 
-function QuizResult({ result, quizTitle, quizId, onClose, summary }) {
+function QuizResult({
+    result,
+    quizTitle,
+    quizId,
+    onClose,
+    summary,
+    overviewHref = null,
+    showRetake = true,
+}) {
     const attempt = result.attempt;
     const passed = Boolean(attempt.passed);
 
@@ -510,12 +565,20 @@ function QuizResult({ result, quizTitle, quizId, onClose, summary }) {
                         {passed ? "Great work — this lesson is now marked complete." : `You need ${attempt.quiz?.passing_score ?? 0}% to pass.`}
                     </div>
                     <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-                        <Button variant="secondary" onClick={onClose}>
-                            Back to quiz overview
-                        </Button>
-                        <Button variant="dark" onClick={() => window.location.assign(`/quiz/${quizId}`)}>
-                            Retake quiz
-                        </Button>
+                        {overviewHref ? (
+                            <ButtonLink to={overviewHref} variant="secondary">
+                                Back to quiz overview
+                            </ButtonLink>
+                        ) : (
+                            <Button variant="secondary" onClick={onClose}>
+                                Back to quiz overview
+                            </Button>
+                        )}
+                        {showRetake ? (
+                            <ButtonLink to={`/quiz/${quizId}`} variant="dark" icon="refresh">
+                                Retake quiz
+                            </ButtonLink>
+                        ) : null}
                     </div>
                 </div>
             </div>
@@ -546,3 +609,5 @@ function QuizResult({ result, quizTitle, quizId, onClose, summary }) {
         </div>
     );
 }
+
+export { QuizResult };
