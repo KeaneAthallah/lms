@@ -9,7 +9,7 @@ use App\Models\QuestionBank;
 use App\Models\Quiz;
 use App\Models\QuizOption;
 use App\Models\QuizQuestion;
-use App\QuizQuestionType;
+use App\Services\QuestionEditor;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
@@ -68,7 +68,7 @@ class QuestionBankController extends Controller
         ]);
     }
 
-    public function destroy(Request $request, Course $course, QuestionBank $questionBank)
+    public function destroy(QuestionEditor $editor, Request $request, Course $course, QuestionBank $questionBank)
     {
         $this->authorize('manage', $course);
         $this->abortUnlessInCourse($course, $questionBank);
@@ -87,9 +87,7 @@ class QuestionBankController extends Controller
         $questionBank->questions()
             ->withExists('attemptSnapshots')
             ->get()
-            ->each(function (QuizQuestion $question): void {
-                $this->guardUnusedQuestion($question);
-            });
+            ->each(fn (QuizQuestion $question) => $editor->assertDeletable($question));
 
         $questionBank->delete();
 
@@ -128,8 +126,9 @@ class QuestionBankController extends Controller
                     'sort_order' => (int) $question->sort_order,
                     'settings' => $question->settings ?? [],
                     // A bank question shared across quizzes may already be in
-                    // student attempts, so the builder needs to know it is frozen
-                    // before offering an edit control.
+                    // student attempts, so the builder needs to know it is locked
+                    // before offering a delete control (editing forks a version).
+                    'version' => (int) $question->version,
                     'in_use' => $question->isInUse(),
                     'options' => $question->options->map(fn (QuizOption $option): array => [
                         'id' => $option->id,
@@ -142,12 +141,12 @@ class QuestionBankController extends Controller
         ]);
     }
 
-    public function storeQuestion(StoreQuizQuestionRequest $request, Course $course, QuestionBank $questionBank)
+    public function storeQuestion(QuestionEditor $editor, StoreQuizQuestionRequest $request, Course $course, QuestionBank $questionBank)
     {
         $this->authorize('manage', $course);
         $this->abortUnlessInCourse($course, $questionBank);
 
-        $question = $this->createQuestion($questionBank, $request);
+        $question = $editor->create($questionBank, $request);
 
         return response()->json([
             'message' => 'Question added to the bank.',
@@ -155,39 +154,30 @@ class QuestionBankController extends Controller
         ], 201);
     }
 
-    public function updateQuestion(StoreQuizQuestionRequest $request, Course $course, QuestionBank $questionBank, QuizQuestion $question)
+    public function updateQuestion(QuestionEditor $editor, StoreQuizQuestionRequest $request, Course $course, QuestionBank $questionBank, QuizQuestion $question)
     {
         $this->authorize('manage', $course);
         $this->abortUnlessInCourse($course, $questionBank);
         abort_unless((int) $question->question_bank_id === (int) $questionBank->id, 404);
-        $this->guardUnusedQuestion($question);
 
-        $question->update([
-            'type' => $request->input('type'),
-            'question_text' => $request->input('question_text'),
-            'points' => $request->input('points'),
-            'explanation' => $request->input('explanation'),
-            'settings' => $this->settingsFor($request),
-            'sort_order' => $request->input('sort_order') ?? $question->sort_order,
-        ]);
-
-        if ($request->has('options')) {
-            $question->options()->delete();
-            $this->syncOptions($question, $request->input('options', []), $question->type);
-        }
+        $saved = $editor->update($question, $request);
+        $forked = $saved->isNot($question);
 
         return response()->json([
-            'message' => 'Question updated.',
-            'question' => $this->questionPayload($question->fresh()->load('options')),
+            'message' => $forked
+                ? "A new version (v{$saved->version}) of this question was created. Students who already attempted it keep the earlier version."
+                : 'Question updated.',
+            'question' => $this->questionPayload($saved->load('options')),
+            'forked' => $forked,
         ]);
     }
 
-    public function destroyQuestion(Request $request, Course $course, QuestionBank $questionBank, QuizQuestion $question)
+    public function destroyQuestion(QuestionEditor $editor, Request $request, Course $course, QuestionBank $questionBank, QuizQuestion $question)
     {
         $this->authorize('manage', $course);
         $this->abortUnlessInCourse($course, $questionBank);
         abort_unless((int) $question->question_bank_id === (int) $questionBank->id, 404);
-        $this->guardUnusedQuestion($question);
+        $editor->assertDeletable($question);
 
         $question->options()->delete();
         $question->delete();
@@ -195,77 +185,9 @@ class QuestionBankController extends Controller
         return response()->json(['message' => 'Question removed from the bank.']);
     }
 
-    /**
-     * Refuse to change a question a student has already been served.
-     *
-     * Every attempt records the questions it was given, and a graded attempt's
-     * review page is rebuilt from that record. Rewriting the question would make
-     * a completed attempt claim the student was asked something they never saw.
-     * Adding a new question is the way to iterate.
-     *
-     * @throws ValidationException
-     */
-    private function guardUnusedQuestion(QuizQuestion $question): void
-    {
-        if (! $question->isInUse()) {
-            return;
-        }
-
-        throw ValidationException::withMessages([
-            'question' => ['This question has already been used in a student attempt, so it cannot be changed or removed. Add a new question instead.'],
-        ]);
-    }
-
     private function abortUnlessInCourse(Course $course, QuestionBank $bank): void
     {
         abort_unless((int) $bank->course_id === (int) $course->id, 404);
-    }
-
-    private function createQuestion(QuestionBank $bank, StoreQuizQuestionRequest $request): QuizQuestion
-    {
-        $question = $bank->questions()->create([
-            'type' => $request->input('type'),
-            'question_text' => $request->input('question_text'),
-            'explanation' => $request->input('explanation'),
-            'points' => $request->input('points'),
-            'settings' => $this->settingsFor($request),
-            'sort_order' => $request->input('sort_order')
-                ?? ((int) $bank->questions()->max('sort_order') + 1),
-        ]);
-
-        $this->syncOptions($question, $request->input('options', []), $question->type);
-
-        return $question;
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function settingsFor(StoreQuizQuestionRequest $request): ?array
-    {
-        $settings = $request->input('settings');
-
-        return is_array($settings) && $settings !== [] ? $settings : null;
-    }
-
-    /**
-     * @param  array<int, array<string, mixed>>  $options
-     */
-    private function syncOptions(QuizQuestion $question, array $options, QuizQuestionType $type): void
-    {
-        $usesOptionKey = in_array($type, [
-            QuizQuestionType::MultipleChoice,
-            QuizQuestionType::TrueFalse,
-            QuizQuestionType::MultiSelect,
-        ], true);
-
-        foreach ($options as $option) {
-            $question->options()->create([
-                'option_text' => $option['option_text'],
-                'is_correct' => $usesOptionKey && (bool) ($option['is_correct'] ?? false),
-                'explanation' => $option['explanation'] ?? null,
-            ]);
-        }
     }
 
     private function questionPayload(QuizQuestion $question): array
@@ -278,6 +200,7 @@ class QuestionBankController extends Controller
             'explanation' => $question->explanation,
             'sort_order' => (int) $question->sort_order,
             'settings' => $question->settings ?? [],
+            'version' => (int) $question->version,
             'in_use' => $question->isInUse(),
             'options' => $question->options->map(fn (QuizOption $option): array => [
                 'id' => $option->id,

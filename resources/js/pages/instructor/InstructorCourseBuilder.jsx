@@ -744,13 +744,14 @@ function QuizModal({ open, onClose, courseSlug, data, run, busy, toast, confirm 
     };
 
     const saveQuestion = async (payload) => {
-        const ok = await run(() =>
-            editing?.q
+        const res = await run(
+            () => (editing?.q
                 ? api.post(`/api/instructor/courses/${courseSlug}/quizzes/${quizId}/questions/${editing.q.id}?_method=PUT`, payload)
-                : api.post(`/api/instructor/courses/${courseSlug}/quizzes/${quizId}/questions`, payload),
-            editing?.q ? 'Question updated.' : 'Question added.',
+                : api.post(`/api/instructor/courses/${courseSlug}/quizzes/${quizId}/questions`, payload)),
+            null,
         );
-        if (ok) {
+        if (res) {
+            toast(res.data?.message ?? 'Question saved.', 'success');
             setEditing(null);
             setCreating(false);
             loadQuiz();
@@ -870,6 +871,7 @@ function QuizModal({ open, onClose, courseSlug, data, run, busy, toast, confirm 
                             <QuestionListItem
                                 key={q.id}
                                 question={q}
+                                inUse={Boolean(q.in_use)}
                                 editing={editing?.q?.id === q.id ? (
                                     <QuestionForm
                                         initial={q}
@@ -878,7 +880,17 @@ function QuizModal({ open, onClose, courseSlug, data, run, busy, toast, confirm 
                                         saving={busy}
                                     />
                                 ) : null}
-                                onEdit={() => setEditing({ q })}
+                                onEdit={() => {
+                                    if (q.in_use) {
+                                        confirm({
+                                            title: 'Create a new version?',
+                                            message: `This question has already been served to students. Saving your changes creates v${(q.version ?? 1) + 1} for future attempts; students who already attempted it keep the current version.`,
+                                            action: () => setEditing({ q }),
+                                        });
+                                        return;
+                                    }
+                                    setEditing({ q });
+                                }}
                                 onDelete={() => confirm({
                                     title: 'Delete this question?',
                                     message: 'Students who have already attempted this quiz keep the question they were served, but it will be removed from the quiz.',
@@ -896,11 +908,12 @@ function QuizModal({ open, onClose, courseSlug, data, run, busy, toast, confirm 
 }
 
 /**
- * One row in a question list. Shared by quiz and bank authoring; `frozen`
- * reflects that the question has already been served to a student, which
- * locks both edit and delete on the server too.
+ * One row in a question list. Shared by quiz and bank authoring; `inUse`
+ * reflects that the question is already in a paper a student was served, which
+ * locks deletion on the server. Editing stays allowed but forks a new version,
+ * so callers confirm before opening the editor.
  */
-function QuestionListItem({ question: q, editing, onEdit, onDelete, frozen = false }) {
+function QuestionListItem({ question: q, editing, onEdit, onDelete, inUse = false }) {
     if (editing) return <div className="mb-2 rounded-lg border border-slate-200 p-3">{editing}</div>;
 
     return (
@@ -911,21 +924,21 @@ function QuestionListItem({ question: q, editing, onEdit, onDelete, frozen = fal
                     {q.question_text}
                 </p>
                 <div className="flex shrink-0 items-center gap-1">
-                    {frozen ? <Badge color="amber">In use</Badge> : null}
+                    {inUse ? <Badge color="amber">In use</Badge> : null}
+                    {(q.version ?? 1) > 1 ? <Badge color="slate">v{q.version}</Badge> : null}
                     <Badge color="slate">{q.points} pt</Badge>
                     <button
                         type="button"
-                        disabled={frozen}
-                        title={frozen ? 'This question has already been served to a student and can no longer be changed.' : undefined}
-                        className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                        title={inUse ? 'Saving creates a new version for future attempts; students who already attempted it keep this one.' : undefined}
+                        className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
                         onClick={onEdit}
                     >
                         <Icon name="pencil" className="h-4 w-4" />
                     </button>
                     <button
                         type="button"
-                        disabled={frozen}
-                        title={frozen ? 'This question has already been served to a student and can no longer be deleted.' : undefined}
+                        disabled={inUse}
+                        title={inUse ? 'This question has already been served to a student and can no longer be deleted.' : undefined}
                         className="rounded-md p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                         onClick={onDelete}
                     >
@@ -1295,13 +1308,14 @@ function QuestionBankModal({ open, onClose, courseSlug, bank, run, busy, confirm
     }, [open, load]);
 
     const saveQuestion = async (payload) => {
-        const ok = await run(
+        const res = await run(
             () => (editing
                 ? api.post(`${base}/questions/${editing.id}?_method=PUT`, payload)
                 : api.post(`${base}/questions`, payload)),
-            editing ? 'Question updated.' : 'Question added.',
+            null,
         );
-        if (ok) {
+        if (res) {
+            toast(res.data?.message ?? 'Question saved.', 'success');
             setEditing(null);
             setCreating(false);
             load();
@@ -1334,8 +1348,9 @@ function QuestionBankModal({ open, onClose, courseSlug, bank, run, busy, confirm
             <div className="space-y-4">
                 {usedBy.length > 0 ? (
                     <Alert tone="info" icon="info">
-                        Used by {usedBy.map((q) => q.title).join(', ')}. A question that has already been
-                        served to a student is locked — add a new one instead of editing it.
+                        Used by {usedBy.map((q) => q.title).join(', ')}. Editing a question that has already been
+                        served to a student creates a new version for future attempts; that student keeps the version
+                        they answered.
                     </Alert>
                 ) : null}
 
@@ -1347,11 +1362,21 @@ function QuestionBankModal({ open, onClose, courseSlug, bank, run, busy, confirm
                     <QuestionListItem
                         key={q.id}
                         question={q}
-                        frozen={Boolean(q.in_use)}
+                        inUse={Boolean(q.in_use)}
                         editing={editing?.id === q.id ? (
                             <QuestionForm initial={q} onCancel={() => setEditing(null)} onSubmit={saveQuestion} saving={busy} />
                         ) : null}
-                        onEdit={() => setEditing(q)}
+                        onEdit={() => {
+                            if (q.in_use) {
+                                confirm({
+                                    title: 'Create a new version?',
+                                    message: `This question has already been served to students. Saving your changes creates v${(q.version ?? 1) + 1} for future attempts; students who already attempted it keep the current version.`,
+                                    action: () => setEditing(q),
+                                });
+                                return;
+                            }
+                            setEditing(q);
+                        }}
                         onDelete={() => confirm({
                             title: 'Delete this question?',
                             message: 'It will be removed from the bank. Quizzes drawing from this bank will no longer be able to pick it.',

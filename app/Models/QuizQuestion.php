@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\QuizQuestionType;
+use App\Services\QuestionEditor;
 use Database\Factories\QuizQuestionFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -14,19 +15,26 @@ class QuizQuestion extends Model
     /** @use HasFactory<QuizQuestionFactory> */
     use HasFactory;
 
-    protected $fillable = ['quiz_id', 'question_bank_id', 'type', 'question_text', 'explanation', 'points', 'sort_order', 'settings'];
+    protected $fillable = ['quiz_id', 'question_bank_id', 'replaced_by_id', 'version', 'type', 'question_text', 'explanation', 'points', 'sort_order', 'settings'];
 
     protected function casts(): array
     {
         return [
             'type' => QuizQuestionType::class,
             'points' => 'decimal:2',
+            'version' => 'integer',
             'settings' => 'array',
         ];
     }
 
     /**
-     * A question belongs to a quiz or to a bank, never both and never neither.
+     * A question belongs to a quiz or to a bank, or is a detached historical
+     * version that a live one replaced (`replaced_by_id` set); never both owners.
+     *
+     * A bare row attached to nothing is a bug, and no write path creates one:
+     * authoring goes through a quiz or a bank relation, and forking goes through
+     * {@see QuestionEditor}, which sets `replaced_by_id` when it
+     * detaches the old head.
      *
      * Enforced here rather than by a database CHECK because this schema has to
      * migrate on SQLite, which cannot add a CHECK constraint to an existing
@@ -41,10 +49,12 @@ class QuizQuestion extends Model
             $hasQuiz = $question->quiz_id !== null;
             $hasBank = $question->question_bank_id !== null;
 
-            if ($hasQuiz === $hasBank) {
-                throw new \LogicException($hasQuiz
-                    ? 'A question cannot belong to both a quiz and a question bank.'
-                    : 'A question must belong to either a quiz or a question bank.');
+            if ($hasQuiz && $hasBank) {
+                throw new \LogicException('A question cannot belong to both a quiz and a question bank.');
+            }
+
+            if (! $hasQuiz && ! $hasBank && $question->replaced_by_id === null) {
+                throw new \LogicException('A question must belong to either a quiz or a question bank.');
             }
         });
     }
@@ -76,6 +86,20 @@ class QuizQuestion extends Model
     public function bank(): BelongsTo
     {
         return $this->belongsTo(QuestionBank::class, 'question_bank_id');
+    }
+
+    /**
+     * The newer version this row was superseded by.
+     *
+     * The currently-owned head has null; a detached historical version points at
+     * the version that replaced it, so following the link walks the lineage
+     * forward to the live question. Served attempts keep referencing the
+     * detached rows directly through `attempt_snapshots`, which is what makes an
+     * old version's text safe to edit.
+     */
+    public function replacedBy(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'replaced_by_id');
     }
 
     /**

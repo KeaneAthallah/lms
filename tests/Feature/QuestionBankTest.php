@@ -284,7 +284,7 @@ class QuestionBankTest extends TestCase
 
     // ------------------------------------------------- freezing author edits
 
-    public function test_a_used_bank_question_cannot_be_edited(): void
+    public function test_a_used_bank_question_is_forked_into_a_new_version(): void
     {
         $this->enrollStudent();
         $bank = $this->makeBank(4);
@@ -293,22 +293,40 @@ class QuestionBankTest extends TestCase
             ->postJson("/api/quizzes/{$quiz->id}/start")
             ->json('questions.0.id');
 
-        $this->actingAs($this->instructor)
+        $response = $this->actingAs($this->instructor)
             ->putJson($this->baseUrl("/question-banks/{$bank->id}/questions/{$usedId}"), [
                 'type' => 'multiple_choice',
                 'question_text' => 'Rewritten after the fact?',
                 'points' => 1,
-                // A payload that is otherwise perfectly valid, so the guard is
-                // the only thing that can reject it.
                 'options' => [
                     ['option_text' => 'Yes', 'is_correct' => true],
                     ['option_text' => 'No', 'is_correct' => false],
                 ],
             ])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors('question');
+            ->assertOk();
 
-        $this->assertNotSame('Rewritten after the fact?', QuizQuestion::find($usedId)->question_text);
+        $old = QuizQuestion::find($usedId);
+        $newId = $response->json('question.id');
+
+        // The old version is detached but untouched, so the served attempt keeps
+        // exactly what the student was shown.
+        $this->assertNotSame($usedId, $newId);
+        $this->assertSame('Rewritten after the fact?', $response->json('question.question_text'));
+        $this->assertSame(2, $response->json('question.version'));
+        $this->assertTrue($response->json('forked'));
+        $this->assertDatabaseHas('quiz_questions', [
+            'id' => $usedId,
+            'quiz_id' => null,
+            'question_bank_id' => null,
+            'replaced_by_id' => $newId,
+            'version' => 1,
+        ]);
+        $this->assertDatabaseHas('quiz_questions', [
+            'id' => $newId,
+            'question_bank_id' => $bank->id,
+            'version' => 2,
+        ]);
+        $this->assertNotSame('Rewritten after the fact?', $old->fresh()->question_text);
     }
 
     public function test_a_used_bank_question_cannot_be_deleted(): void
@@ -328,16 +346,15 @@ class QuestionBankTest extends TestCase
         $this->assertDatabaseHas('quiz_questions', ['id' => $usedId]);
     }
 
-    public function test_a_used_quiz_question_cannot_be_edited_either(): void
+    public function test_a_used_quiz_question_is_forked_into_a_new_version(): void
     {
         $this->enrollStudent();
         $quiz = Quiz::factory()->for($this->course)->create();
         $question = QuizQuestion::factory()->create(['quiz_id' => $quiz->id]);
-        QuizOption::factory()->correct()->create(['quiz_question_id' => $question->id]);
 
         $this->actingAs($this->student)->postJson("/api/quizzes/{$quiz->id}/start");
 
-        $this->actingAs($this->instructor)
+        $response = $this->actingAs($this->instructor)
             ->putJson($this->baseUrl("/quizzes/{$quiz->id}/questions/{$question->id}"), [
                 'type' => 'multiple_choice',
                 'question_text' => 'Rewritten after the fact?',
@@ -347,8 +364,17 @@ class QuestionBankTest extends TestCase
                     ['option_text' => 'No', 'is_correct' => false],
                 ],
             ])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors('question');
+            ->assertOk();
+
+        $newId = $response->json('question.id');
+
+        // The quiz owns the new version; the old one points at it and serves the
+        // attempt that already ran.
+        $this->assertNotSame($question->id, $newId);
+        $this->assertSame(2, $response->json('question.version'));
+        $this->assertDatabaseHas('quiz_questions', ['id' => $question->id, 'quiz_id' => null, 'replaced_by_id' => $newId]);
+        $this->assertDatabaseHas('quiz_questions', ['id' => $newId, 'quiz_id' => $quiz->id, 'version' => 2]);
+        $this->assertSame($question->id, $quiz->openAttemptFor($this->student)->questions->first()->id);
     }
 
     public function test_an_unused_question_can_still_be_edited(): void
