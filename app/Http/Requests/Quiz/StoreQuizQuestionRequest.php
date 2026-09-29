@@ -112,6 +112,10 @@ class StoreQuizQuestionRequest extends FormRequest
             }
         }
 
+        if (array_key_exists('rubric', $settings)) {
+            $this->validateRubric($validator);
+        }
+
         // Settings that belong to another type would silently be ignored by the
         // grader, so an author would not know they had no effect. Negative
         // marking applies to every scored type, so it joins each list rather
@@ -121,6 +125,7 @@ class StoreQuizQuestionRequest extends FormRequest
                 QuizQuestionType::MultiSelect->value => ['partial_credit'],
                 QuizQuestionType::Numeric->value => ['answer', 'tolerance'],
                 QuizQuestionType::FillInBlank->value => ['blanks', 'partial_credit'],
+                QuizQuestionType::ShortAnswer->value => ['rubric'],
                 default => [],
             },
             'negative_marking',
@@ -139,6 +144,66 @@ class StoreQuizQuestionRequest extends FormRequest
                 $validator->errors()->add(
                     "settings.{$key}",
                     "The {$key} setting does not apply to a {$type} question.",
+                );
+            }
+        }
+    }
+
+    /**
+     * Validate a rubric definition, which only lives on short-answer questions.
+     *
+     * A rubric is an ordered list of criteria; each criterion names what the
+     * marker looks for, the whole terms that signal it, and how many points it
+     * is worth. The grader hides keywords from students (they are the scoring
+     * rule), so the authoring contract is the place to reject a criterion that
+     * could never match anything.
+     */
+    private function validateRubric($validator): void
+    {
+        if ($this->input('type') !== QuizQuestionType::ShortAnswer->value) {
+            $validator->errors()->add('settings.rubric', 'Rubrics only apply to short-answer questions.');
+
+            return;
+        }
+
+        $criteria = $this->input('settings.rubric');
+
+        if (! is_array($criteria) || $criteria === []) {
+            $validator->errors()->add('settings.rubric', 'A rubric needs at least one criterion.');
+
+            return;
+        }
+
+        if (count($criteria) > 10) {
+            $validator->errors()->add('settings.rubric', 'A rubric can have at most 10 criteria.');
+        }
+
+        foreach ($criteria as $index => $criterion) {
+            $label = $criterion['label'] ?? null;
+            if (! is_string($label) || trim($label) === '') {
+                $validator->errors()->add(
+                    "settings.rubric.{$index}.label",
+                    'Each criterion needs a label.',
+                );
+            }
+
+            $points = $criterion['points'] ?? null;
+            if (! is_numeric($points) || (float) $points <= 0) {
+                $validator->errors()->add(
+                    "settings.rubric.{$index}.points",
+                    'Each criterion needs positive points.',
+                );
+            }
+
+            $keywords = $criterion['keywords'] ?? null;
+            $hasUsableKeyword = is_array($keywords) && collect($keywords)->contains(
+                fn ($keyword): bool => is_string($keyword) && trim($keyword) !== '',
+            );
+
+            if (! $hasUsableKeyword) {
+                $validator->errors()->add(
+                    "settings.rubric.{$index}.keywords",
+                    'Each criterion needs at least one keyword.',
                 );
             }
         }

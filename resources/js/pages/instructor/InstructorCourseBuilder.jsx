@@ -1378,6 +1378,20 @@ function QuestionForm({ initial, onCancel, onSubmit, saving }) {
         });
     };
 
+    const setRubricCriterion = (index, patch) =>
+        setSetting('rubric', (form.settings?.rubric ?? []).map((c, i) => (i === index ? { ...c, ...patch } : c)));
+
+    const addRubricCriterion = () =>
+        setSetting('rubric', [...(form.settings?.rubric ?? []), { label: '', keywords: [], points: '' }]);
+
+    const removeRubricCriterion = (index) =>
+        setSetting('rubric', (form.settings?.rubric ?? []).filter((_, i) => i !== index));
+
+    const rubricCriteria = () =>
+        (form.settings?.rubric ?? []).filter(
+            (c) => c.label?.trim() && Number(c.points) > 0 && (c.keywords ?? []).some((k) => k.trim()),
+        );
+
     const submit = () => {
         const payload = { type: form.type, question_text: form.question_text, points: Number(form.points) || 1, explanation: form.explanation };
 
@@ -1385,6 +1399,20 @@ function QuestionForm({ initial, onCancel, onSubmit, saving }) {
             // The grader reads the key from the first option flagged correct, so
             // the typed answer has to be sent as a real option row.
             payload.options = [{ option_text: form.options[0]?.option_text ?? '', is_correct: true, explanation: '' }];
+            payload.settings = { negative_marking: Number(form.settings?.negative_marking ?? 0) };
+
+            // A rubric swaps scoring from an exact match to criteria, and only
+            // counts once it has at least one complete row -- an in-progress
+            // editorial stub is the same as no rubric.
+            const rubric = rubricCriteria().map((c) => ({
+                label: c.label.trim(),
+                keywords: c.keywords.map((k) => k.trim()).filter(Boolean),
+                points: Number(c.points),
+            }));
+
+            if (rubric.length > 0) {
+                payload.settings.rubric = rubric;
+            }
         } else if (form.type === 'true_false') {
             payload.options = [
                 { option_text: 'True', is_correct: form.options?.[0]?.is_correct === true, explanation: form.options?.[0]?.explanation },
@@ -1493,12 +1521,62 @@ function QuestionForm({ initial, onCancel, onSubmit, saving }) {
                 </div>
 
                 {form.type === 'short_answer' ? (
-                    <Field label="Correct answer (exact, case-insensitive)" required>
-                        <Input
-                            value={form.options[0]?.option_text ?? ''}
-                            onChange={(e) => setOption(0, 'option_text', e.target.value)}
-                        />
-                    </Field>
+                    <>
+                        <Field
+                            label="Correct answer (exact, case-insensitive)"
+                            required
+                            hint={rubricCriteria().length > 0 ? 'Only used when the rubric has no complete criteria.' : null}
+                        >
+                            <Input
+                                value={form.options[0]?.option_text ?? ''}
+                                onChange={(e) => setOption(0, 'option_text', e.target.value)}
+                            />
+                        </Field>
+
+                        <Field
+                            label="Rubric (score by criteria instead of exact match)"
+                            hint="An answer that is wrong overall but names the right ideas earns partial credit. Keywords stay hidden from students; whole-term matches, one hit per criterion."
+                        >
+                            <div className="space-y-2">
+                                {(form.settings?.rubric ?? []).map((criterion, index) => (
+                                    <div key={index} className="space-y-2 rounded-lg bg-slate-50 p-3 ring-1 ring-slate-200">
+                                        <div className="grid gap-2 sm:grid-cols-[1fr_9rem]">
+                                            <Input
+                                                value={criterion.label ?? ''}
+                                                onChange={(e) => setRubricCriterion(index, { label: e.target.value })}
+                                                placeholder="Looks for the principle, e.g. States Newton's second law"
+                                            />
+                                            <Input
+                                                type="number"
+                                                step="0.25"
+                                                min="0.1"
+                                                value={criterion.points ?? ''}
+                                                onChange={(e) => setRubricCriterion(index, { points: e.target.value })}
+                                                placeholder="Points"
+                                            />
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <Input
+                                                value={(criterion.keywords ?? []).join(' | ')}
+                                                onChange={(e) =>
+                                                    setRubricCriterion(index, {
+                                                        keywords: e.target.value.split('|').map((s) => s.trim()).filter(Boolean),
+                                                    })
+                                                }
+                                                placeholder="Keywords, e.g. force equals mass times acceleration | F=ma"
+                                            />
+                                            <Button variant="secondary" size="sm" onClick={() => removeRubricCriterion(index)}>
+                                                Remove
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ))}
+                                <Button variant="secondary" size="sm" icon="plus" onClick={addRubricCriterion}>
+                                    Add criterion
+                                </Button>
+                            </div>
+                        </Field>
+                    </>
                 ) : form.type === 'true_false' ? (
                     <div className="grid gap-2 sm:grid-cols-2">
                         {[['True', 0], ['False', 1]].map(([label, idx]) => (

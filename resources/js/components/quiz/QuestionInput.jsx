@@ -1,5 +1,6 @@
 import { Input, cx } from '../ui';
 import { blankIndexes } from './questionTypes';
+import RubricGuide from './RubricGuide';
 
 /**
  * Renders the answer control for one question.
@@ -93,11 +94,14 @@ export default function QuestionInput({ question, value, onChange }) {
     switch (question.type) {
         case 'short_answer':
             return (
-                <Input
-                    value={value ?? ''}
-                    onChange={(e) => onChange(e.target.value)}
-                    placeholder="Type your answer…"
-                />
+                <div>
+                    <Input
+                        value={value ?? ''}
+                        onChange={(e) => onChange(e.target.value)}
+                        placeholder="Type your answer…"
+                    />
+                    <RubricGuide rubric={question.settings?.rubric} />
+                </div>
             );
 
         case 'numeric':

@@ -1,5 +1,6 @@
 import { Badge, cx, Icon } from '../ui';
 import { blankIndexes } from './questionTypes';
+import RubricGuide from './RubricGuide';
 
 /**
  * The post-submit review for one question.
@@ -82,6 +83,15 @@ export default function QuestionReview({ question }) {
             <div className="mt-3 space-y-1">
                 <TextReview label="Your answer" value={question.submitted_answer} />
             </div>
+        );
+    }
+
+    if (question.type === 'short_answer') {
+        return (
+            <>
+                <TextReview label="Your answer" value={question.submitted_answer} />
+                <RubricGuide rubric={question.settings?.rubric} />
+            </>
         );
     }
 
