@@ -24,6 +24,8 @@ use App\Models\QuizQuestion;
  */
 class NumericGrader implements Grader
 {
+    use NegativeMarking;
+
     public function grade(QuizQuestion $question, mixed $submitted): float
     {
         $expected = $this->parse($question->settings['answer'] ?? null);
@@ -61,7 +63,7 @@ class NumericGrader implements Grader
     public function settingsForStudent(QuizQuestion $question): array
     {
         // Both `answer` and `tolerance` are the answer key, and neither is sent.
-        return [];
+        return $this->negativeMarkingForStudent($question);
     }
 
     /**

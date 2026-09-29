@@ -336,7 +336,12 @@ export default function QuizPage() {
                                     <span className="mr-1.5 text-brand-600">Q{index + 1}.</span>
                                     <QuestionText text={question.question_text} />
                                 </p>
-                                <Badge color="slate">{question.points} pt</Badge>
+                                <div className="flex shrink-0 flex-col items-end gap-1.5">
+                                    <Badge color="slate">{question.points} pt</Badge>
+                                    {Number(question.settings?.negative_marking ?? 0) > 0 ? (
+                                        <Badge color="red">−{(Number(question.settings.negative_marking) * 100).toFixed(0)}% for a wrong answer</Badge>
+                                    ) : null}
+                                </div>
                             </div>
                             <QuestionInput
                                 question={question}
@@ -508,6 +513,7 @@ function pointsBadgeLabel(question) {
     const earned = Number(question.points_earned ?? 0);
     const possible = Number(question.points ?? 0);
 
+    if (earned < 0) return `${earned} / ${possible} pts`;
     if (earned <= 0) return `0 / ${possible} pts`;
     if (earned >= possible) return `+${earned} pts`;
 

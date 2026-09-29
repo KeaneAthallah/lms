@@ -1396,6 +1396,12 @@ function QuestionForm({ initial, onCancel, onSubmit, saving }) {
             payload.options = [];
             payload.settings = { ...form.settings };
 
+            // The negative-marking field types into a number input, which hands
+            // back a string. Normalise it so the stored JSON holds a number.
+            if (payload.settings.negative_marking !== undefined) {
+                payload.settings.negative_marking = Number(payload.settings.negative_marking ?? 0);
+            }
+
             // A cleared tolerance arrives as an empty string, which the server
             // rejects as non-numeric. Drop it so the default of zero applies.
             if (form.type === 'numeric' && payload.settings.tolerance === '') {
@@ -1404,10 +1410,17 @@ function QuestionForm({ initial, onCancel, onSubmit, saving }) {
         } else {
             payload.options = form.options.filter((o) => o.option_text.trim());
 
-            // Only multi_select accepts a setting. Sending partial_credit on a
-            // single-answer question would be rejected as inapplicable.
+            // Negative marking is the one setting every type accepts, so it is
+            // sent explicitly (rather than left to whatever the form holds):
+            // the server rejects settings that do not apply to a type, and a
+            // stale carry-over would break a save.
             if (form.type === 'multi_select') {
-                payload.settings = { partial_credit: Boolean(form.settings?.partial_credit) };
+                payload.settings = {
+                    partial_credit: Boolean(form.settings?.partial_credit),
+                    negative_marking: Number(form.settings?.negative_marking ?? 0),
+                };
+            } else {
+                payload.settings = { negative_marking: Number(form.settings?.negative_marking ?? 0) };
             }
         }
 
@@ -1578,6 +1591,17 @@ function QuestionForm({ initial, onCancel, onSubmit, saving }) {
                         </Button>
                     </div>
                 )}
+
+                <Field label="Negative marking" hint="Fraction of the points a wrong, answered option deducts. 0.25 on a 2-point question costs 0.5. Blank questions are never penalised.">
+                    <Input
+                        type="number"
+                        step="0.05"
+                        min="0"
+                        max="1"
+                        value={form.settings?.negative_marking ?? 0}
+                        onChange={(e) => setSetting('negative_marking', e.target.value)}
+                    />
+                </Field>
 
                 <Field label="Explanation (shown to students after the quiz)">
                     <Textarea value={form.explanation ?? ''} onChange={(e) => set('explanation', e.target.value)} className="min-h-16" />

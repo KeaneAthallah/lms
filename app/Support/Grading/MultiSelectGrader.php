@@ -23,6 +23,8 @@ use App\Models\QuizQuestion;
  */
 class MultiSelectGrader implements Grader
 {
+    use NegativeMarking;
+
     public function grade(QuizQuestion $question, mixed $submitted): float
     {
         $correctIds = $question->options
@@ -83,7 +85,10 @@ class MultiSelectGrader implements Grader
     {
         // Partial credit is not the answer key, and disclosing the scoring mode
         // is fair — the student is being assessed differently and should know.
-        return ['partial_credit' => (bool) ($question->settings['partial_credit'] ?? false)];
+        return array_merge(
+            ['partial_credit' => (bool) ($question->settings['partial_credit'] ?? false)],
+            $this->negativeMarkingForStudent($question),
+        );
     }
 
     /**

@@ -13,6 +13,8 @@ use App\Models\QuizQuestion;
  */
 class ShortAnswerGrader implements Grader
 {
+    use NegativeMarking;
+
     public function grade(QuizQuestion $question, mixed $submitted): float
     {
         if ($submitted === null || $submitted === '') {
@@ -42,7 +44,7 @@ class ShortAnswerGrader implements Grader
 
     public function settingsForStudent(QuizQuestion $question): array
     {
-        return [];
+        return $this->negativeMarkingForStudent($question);
     }
 
     private function normalize(string $value): string

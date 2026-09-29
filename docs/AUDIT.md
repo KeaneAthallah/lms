@@ -44,7 +44,7 @@ Missing (by phase):
 | Gap | Phase |
 |---|---|
 | Question bank, question types beyond MC/TF/SA, pools, blueprints, versioning | 2 (banks, pools and blueprints done; versioning left) |
-| Assessment engine: autosave, resume, review mode, partial credit, negative marking, rubrics, exam windows, late rules | 2 (autosave, resume, enforced time limits and review mode done; negative marking, rubrics, exam windows and late rules left) |
+| Assessment engine: autosave, resume, review mode, partial credit, negative marking, rubrics, exam windows, late rules | 2 (autosave, resume, enforced time limits, review mode and negative marking done; rubrics, exam windows and late rules left) |
 | Gradebook: categories, weights, dropped grades, overrides, CSV/XLSX, audit trail | 2 |
 | Notes, bookmarks, video timestamped notes, course reviews, tags, announcements, FAQ | 3 |
 | Discussions/threads/mentions/moderation, live sessions, calendar, attendance | 4 |
@@ -269,7 +269,7 @@ Two contract smells worth recording before they calcify:
 
 Recorded as each item lands, with the tests that prove it.
 
-Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 tests, 520 assertions**. After the Phase 2 question-type slice: **205 tests, 599 assertions**. After the question-bank slice: **238 tests, 705 assertions**. After the learning-map N+1 fix: **239 tests, 710 assertions**. After the quiz blueprint slice: **267 tests, 788 assertions**. After the autosave and resume slice: **294 tests, 847 assertions**. After the review-mode slice: **304 tests, 877 assertions**. All passing, on MySQL 8 (`db_lms`) with a full `migrate` → `rollback` → `migrate` round trip verified.
+Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 tests, 520 assertions**. After the Phase 2 question-type slice: **205 tests, 599 assertions**. After the question-bank slice: **238 tests, 705 assertions**. After the learning-map N+1 fix: **239 tests, 710 assertions**. After the quiz blueprint slice: **267 tests, 788 assertions**. After the autosave and resume slice: **294 tests, 847 assertions**. After the review-mode slice: **304 tests, 877 assertions**. After the negative-marking slice: **318 tests, 927 assertions**. All passing, on MySQL 8 (`db_lms`) with a full `migrate` → `rollback` → `migrate` round trip verified.
 
 | # | Item | Change | Proof |
 |---|------|--------|-------|
@@ -304,6 +304,7 @@ Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 te
 | 29 | Quiz autosave, resume and enforced time limits | Answers are written to `quiz_answers` ungraded (`points_earned` nullable, so a draft is distinguishable from a graded zero) and a second Start resumes the open attempt instead of minting a second paper, with the frozen paper and saved answers restored. A time limit used to be advisory: the client discarded the answers at zero, the attempt stayed `in_progress` forever, and only `completed` attempts counted, so a student could start again for a fresh full-duration draw indefinitely. Now an attempt past its deadline is closed, graded from what was saved, recorded in the gradebook, and counts against `attempts_allowed`. | `QuizAttemptResumeTest` |
 | 30 | Autosave round-tripping | A saved answer is decoded through the grader on resume, so a multi-select returns a list and a cleared choice returns null rather than option `0`. The client debounces writes, flushes on unmount and on tab-hide, and submits at the deadline instead of throwing the paper away. `QuizAnswer::question()` and `QuizOption::question()` were missing their foreign key and resolved to a non-existent `question_id` column, so they returned null instead of failing loudly. | `QuizAttemptResumeTest` |
 | 31 | Review mode | Every graded attempt -- completed or timed out -- gets a durable, addressable report at `/quiz/attempts/{id}` rendered from the existing read-only endpoint, and the overview lists the student's own recent attempts with a Review link on each. `reviewable` is `submitted_at !== null`, not a status: an expired attempt is graded, so a status check would drop it from history. The report reads the frozen paper, so a quiz that grew after a student finished still shows exactly the questions that were sat. | `QuizReviewModeTest` |
+| 32 | Negative marking | A wrong but *attempted* answer deducts `settings.negative_marking` (a fraction of the question's points, one setting shared across every scored type). A blank is never penalised, so running out of time is not charged a second time; an answer that earns any partial credit is never penalised; per-question `points_earned` may go negative while the attempt total and percentage are floored at zero. The rule is disclosed in `settingsForStudent()` before starting and on the review, and the disclosure still excludes the answer key (`answer` and `blanks` never leak). The instructor form gained a shared fraction input for all six types, validated as numeric in `[0, 1]`. | `QuizNegativeMarkingTest` |
 
 ### Notes and residual risk
 
@@ -315,7 +316,7 @@ Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 te
 - **A question type is a backend change first.** Adding a case to `QuizQuestionType` without a grader, a `settingsForStudent()` projection, and validation will fail loudly at the registry rather than quietly scoring every submission zero.
 - **A random draw has to clear the relation's own ordering.** `QuestionBank::questions()` orders by `sort_order` so the builder shows a stable list, and SQL honours only the first `ORDER BY`. `inRandomOrder()` on top of that looked random in the code and served every student the same first N questions; the draw uses `reorder()` instead. Any future "pick some at random" query has to do the same.
 - **A column subset on a has-many eager load must include the foreign key.** `with('courses:id,title,slug')` matches rows on `category_id`, which was not selected, and silently hydrates an empty collection rather than raising - the `withCount` total stays correct, so only the missing list gave it away. `belongsTo` subsets are safe because the key already sits on the parent row.
-- **Deliberately not done in this pass.** Certificate PDF generation, the frontend issues catalogued in §6/§7 (dark-mode tokens, stale short-answer options, `ghost`/`brand` variants, modal focus, typography, code splitting), question versioning, the rest of the advanced assessment engine (negative marking, rubrics, exam windows, late rules), and the gradebook.
+- **Deliberately not done in this pass.** Certificate PDF generation, the frontend issues catalogued in §6/§7 (dark-mode tokens, stale short-answer options, `ghost`/`brand` variants, modal focus, typography, code splitting), question versioning, the rest of the advanced assessment engine (rubrics, exam windows, late rules), and the gradebook.
 
 ### Follow-ups worth prioritising next
 

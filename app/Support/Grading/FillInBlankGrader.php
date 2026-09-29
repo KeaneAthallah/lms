@@ -20,6 +20,8 @@ use App\Models\QuizQuestion;
  */
 class FillInBlankGrader implements Grader
 {
+    use NegativeMarking;
+
     public function grade(QuizQuestion $question, mixed $submitted): float
     {
         $accepted = $this->acceptedAnswers($question);
@@ -88,10 +90,13 @@ class FillInBlankGrader implements Grader
     public function settingsForStudent(QuizQuestion $question): array
     {
         // `blanks` is the answer key. Only the scoring mode is disclosed.
-        return [
-            'partial_credit' => (bool) ($question->settings['partial_credit'] ?? false),
-            'blank_count' => count($question->blankIndexes()),
-        ];
+        return array_merge(
+            [
+                'partial_credit' => (bool) ($question->settings['partial_credit'] ?? false),
+                'blank_count' => count($question->blankIndexes()),
+            ],
+            $this->negativeMarkingForStudent($question),
+        );
     }
 
     /**

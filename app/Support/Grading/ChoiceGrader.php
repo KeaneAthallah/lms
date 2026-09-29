@@ -12,6 +12,8 @@ use App\Models\QuizQuestion;
  */
 class ChoiceGrader implements Grader
 {
+    use NegativeMarking;
+
     public function grade(QuizQuestion $question, mixed $submitted): float
     {
         if ($submitted === null || $submitted === '') {
@@ -53,6 +55,6 @@ class ChoiceGrader implements Grader
 
     public function settingsForStudent(QuizQuestion $question): array
     {
-        return [];
+        return $this->negativeMarkingForStudent($question);
     }
 }

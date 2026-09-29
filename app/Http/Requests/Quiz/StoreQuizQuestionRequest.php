@@ -113,13 +113,26 @@ class StoreQuizQuestionRequest extends FormRequest
         }
 
         // Settings that belong to another type would silently be ignored by the
-        // grader, so an author would not know they had no effect.
-        $allowed = match ($type) {
-            QuizQuestionType::MultiSelect->value => ['partial_credit'],
-            QuizQuestionType::Numeric->value => ['answer', 'tolerance'],
-            QuizQuestionType::FillInBlank->value => ['blanks', 'partial_credit'],
-            default => [],
-        };
+        // grader, so an author would not know they had no effect. Negative
+        // marking applies to every scored type, so it joins each list rather
+        // than living in one.
+        $allowed = [
+            ...match ($type) {
+                QuizQuestionType::MultiSelect->value => ['partial_credit'],
+                QuizQuestionType::Numeric->value => ['answer', 'tolerance'],
+                QuizQuestionType::FillInBlank->value => ['blanks', 'partial_credit'],
+                default => [],
+            },
+            'negative_marking',
+        ];
+
+        if (isset($settings['negative_marking'])) {
+            if (! is_numeric($settings['negative_marking'])) {
+                $validator->errors()->add('settings.negative_marking', 'Negative marking must be a number.');
+            } elseif ($settings['negative_marking'] < 0 || $settings['negative_marking'] > 1) {
+                $validator->errors()->add('settings.negative_marking', 'Negative marking must be between 0 and 1.');
+            }
+        }
 
         foreach (array_keys($settings) as $key) {
             if (! in_array($key, $allowed, true)) {

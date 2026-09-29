@@ -489,6 +489,14 @@ class QuizService
             $answer = $this->effectiveAnswer($question, $answersByQuestion, $drafts);
             $earned = $this->gradeQuestion($question, $answer);
 
+            // Negative marking: a wrong answer that was actually attempted (not
+            // left blank) deducts a fraction of the question's points. A blank
+            // is not punished -- a student who ran out of time on an untimed
+            // question should not be double-charged for it.
+            if ($earned === 0.0) {
+                $earned = $this->negativeMarkingEarned($question, $answer);
+            }
+
             $totalEarned += $earned;
             $totalPossible += (float) $question->points;
 
@@ -501,6 +509,11 @@ class QuizService
                 ],
             );
         }
+
+        // Deductions cannot take the whole attempt below zero. Per-question
+        // points_earned may still be negative, so a question can display its
+        // own penalty in the review while the headline score stays sane.
+        $totalEarned = max(0.0, $totalEarned);
 
         $percentage = $totalPossible > 0 ? round(($totalEarned / $totalPossible) * 100, 2) : 0.0;
         $passed = $percentage >= (float) $quiz->passing_score;
@@ -581,6 +594,44 @@ class QuizService
     private function gradeQuestion(QuizQuestion $question, mixed $submitted): float
     {
         return $this->graders->for($question->type)->grade($question, $submitted);
+    }
+
+    /**
+     * The penalty, if any, for a wrong answer on a question with negative
+     * marking. The fraction lives in `settings.negative_marking` and is a
+     * fraction of the question's points: 0.25 on a 2-point question deducts 0.5.
+     * Only a wrong answer that was actually attempted is penalised.
+     *
+     * @return float 0 when there is no penalty or the question was left blank
+     */
+    private function negativeMarkingEarned(QuizQuestion $question, mixed $submitted): float
+    {
+        $fraction = (float) ($question->settings['negative_marking'] ?? 0.0);
+
+        if ($fraction <= 0.0 || $this->isBlankAnswer($question, $submitted)) {
+            return 0.0;
+        }
+
+        return -round((float) $question->points * min(1.0, $fraction), 2);
+    }
+
+    /**
+     * Whether a submission is empty for the purposes of negative marking.
+     *
+     * Checked through the grader's own round-trip so every type decides the
+     * same way it decides later, when it serialises the answer for storage: a
+     * fill-in-the-blank with every blank empty is blank, a partially filled one
+     * is an attempt.
+     */
+    private function isBlankAnswer(QuizQuestion $question, mixed $submitted): bool
+    {
+        $decoded = $this->graders->for($question->type)->decode($this->serializeAnswer($question, $submitted));
+
+        if (is_array($decoded)) {
+            return collect($decoded)->flatten()->every(fn ($value): bool => $value === null || $value === '' || $value === []);
+        }
+
+        return $decoded === null || $decoded === '';
     }
 
     private function serializeAnswer(QuizQuestion $question, mixed $submitted): string
