@@ -7,6 +7,7 @@ use App\Models\AssignmentSubmission;
 use App\Models\Course;
 use App\Models\Enrollment;
 use App\Models\Grade;
+use App\Models\GradebookCategory;
 use App\Models\QuizAttempt;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
@@ -21,17 +22,25 @@ use Illuminate\Database\Eloquent\Collection;
  * `Quiz::bestAttemptFor()`. An assignment produces one row per student-submission,
  * so its cell is that row.
  *
- * The course percentage is the simple mean of every graded assessment's
- * percentage. Categories, weights and dropped grades are later slices; until
- * then every assessment counts equally and one that was never graded counts for
- * nothing (shown as a dash rather than a zero, so an untaken assessment does not
- * drag the average down).
+ * Assessments may be grouped into weighted categories. The course percentage is
+ * the weighted mean of the buckets the student has a grade in: within a bucket
+ * their score is the mean of its graded cells, that mean is multiplied by the
+ * bucket's weight, and the weighted sum is divided by the weight actually
+ * applied. An untaken assessment is a dash that counts for nothing (not a zero,
+ * so it does not drag a bucket - or the course grade - down). A course with no
+ * categories is a single uncategorized bucket of weight 1, which reproduces the
+ * simple mean exactly.
  */
 class GradebookService
 {
+    /** The bucket an assessment with no category lands in. */
+    public const UNCATEGORIZED = 'uncategorized';
+
     public function courseGradebook(Course $course): array
     {
         $assessments = $this->assessments($course);
+
+        $categories = $this->categories($course, $assessments);
 
         $enrollments = Enrollment::where('course_id', $course->id)
             ->whereIn('status', [EnrollmentStatus::Active, EnrollmentStatus::Completed])
@@ -48,14 +57,21 @@ class GradebookService
 
         [$bestQuizByStudent, $assignmentByStudent] = $this->indexedByAssessment($grades);
 
+        $bucketKeys = collect($categories)->pluck('key')->all();
+        $weights = collect($categories)->mapWithKeys(fn (array $category): array => [$category['key'] => $category['weight']])->all();
+
         $students = $enrollments->map(fn (Enrollment $enrollment): array => $this->studentRow(
             $enrollment,
             $assessments,
+            $bucketKeys,
+            $weights,
             $bestQuizByStudent,
             $assignmentByStudent,
         ));
 
         $averages = $this->assessmentAverages($assessments->pluck('key')->all(), $students);
+
+        $categories = $this->withAverages($categories, $students);
 
         return [
             'course' => [
@@ -63,11 +79,14 @@ class GradebookService
                 'title' => $course->title,
                 'slug' => $course->slug,
             ],
+            'categories' => $categories,
             'assessments' => $assessments->map(fn (array $assessment): array => [
                 'key' => $assessment['key'],
                 'type' => $assessment['type'],
                 'id' => $assessment['id'],
                 'title' => $assessment['title'],
+                'category_id' => $assessment['category_id'],
+                'category_key' => $assessment['category_key'],
                 'average' => $averages[$assessment['key']] ?? null,
             ])->values()->all(),
             'students' => $students->values()->all(),
@@ -75,29 +94,87 @@ class GradebookService
     }
 
     /**
-     * Every assessment columns list, quizzes and assignments together in title
-     * order. Each carries the id again so a column maps back to its quiz or
-     * assignment without parsing the key.
+     * Every assessment column, quizzes and assignments together, grouped by
+     * gradebook category (in the category's order, uncategorized last) and by
+     * title within a group. Each carries its category so a column maps back to
+     * its quiz or assignment, its bucket, and its id without parsing the key.
      *
-     * @return array<int, array{key: string, type: string, id: int, title: string}>
+     * @return \Illuminate\Support\Collection<int, array{
+     *     key: string,
+     *     type: string,
+     *     id: int,
+     *     title: string,
+     *     category_id: int|null,
+     *     category_key: string,
+     *     group: int,
+     * }>
      */
     private function assessments(Course $course): \Illuminate\Support\Collection
     {
+        $categoryPositions = $course->gradebookCategories
+            ->mapWithKeys(fn (GradebookCategory $category, int $index): array => [$category->id => $index]);
+        $uncategorized = $categoryPositions->count();
+
+        $toColumn = function (string $type, int $id, string $title, ?int $categoryId) use ($categoryPositions, $uncategorized): array {
+            $position = $categoryId !== null
+                ? $categoryPositions->get($categoryId, $uncategorized)
+                : $uncategorized;
+
+            return [
+                'key' => "{$type}-{$id}",
+                'type' => $type,
+                'id' => $id,
+                'title' => $title,
+                'category_id' => $categoryId,
+                'category_key' => $categoryId !== null
+                    ? "category-{$categoryId}"
+                    : self::UNCATEGORIZED,
+                'group' => $position,
+            ];
+        };
+
         return collect()
-            ->concat($course->quizzes()->get(['id', 'title'])->map(fn ($quiz): array => [
-                'key' => "quiz-{$quiz->id}",
-                'type' => 'quiz',
-                'id' => (int) $quiz->id,
-                'title' => $quiz->title,
-            ]))
-            ->concat($course->assignments()->get(['id', 'title'])->map(fn ($assignment): array => [
-                'key' => "assignment-{$assignment->id}",
-                'type' => 'assignment',
-                'id' => (int) $assignment->id,
-                'title' => $assignment->title,
-            ]))
-            ->sortBy(fn (array $assessment): string => strtolower($assessment['title']))
+            ->concat($course->quizzes()->get(['id', 'title', 'category_id'])->map(
+                fn ($quiz): array => $toColumn('quiz', (int) $quiz->id, $quiz->title, $quiz->category_id !== null ? (int) $quiz->category_id : null),
+            ))
+            ->concat($course->assignments()->get(['id', 'title', 'category_id'])->map(
+                fn ($assignment): array => $toColumn('assignment', (int) $assignment->id, $assignment->title, $assignment->category_id !== null ? (int) $assignment->category_id : null),
+            ))
+            ->sortBy(fn (array $assessment): array => [$assessment['group'], strtolower($assessment['title'])])
             ->values();
+    }
+
+    /**
+     * The course's gradebook categories (plus an implicit uncategorized bucket,
+     * only when an assessment actually sits outside every defined category), each
+     * with the number of columns it holds.
+     *
+     * @param  \Illuminate\Support\Collection<int, array{category_key: string}>  $assessments
+     * @return array<int, array{key: string, id: int|null, name: string, weight: float, assessment_count: int}>
+     */
+    private function categories(Course $course, \Illuminate\Support\Collection $assessments): array
+    {
+        $columnsPerKey = $assessments->groupBy('category_key')->map->count()->all();
+
+        $categories = $course->gradebookCategories->map(fn (GradebookCategory $category): array => [
+            'key' => "category-{$category->id}",
+            'id' => (int) $category->id,
+            'name' => $category->name,
+            'weight' => (float) $category->weight,
+            'assessment_count' => $columnsPerKey["category-{$category->id}"] ?? 0,
+        ])->all();
+
+        if (isset($columnsPerKey[self::UNCATEGORIZED])) {
+            $categories[] = [
+                'key' => self::UNCATEGORIZED,
+                'id' => null,
+                'name' => 'Uncategorized',
+                'weight' => 1.0,
+                'assessment_count' => $columnsPerKey[self::UNCATEGORIZED],
+            ];
+        }
+
+        return $categories;
     }
 
     /**
@@ -149,14 +226,26 @@ class GradebookService
     }
 
     /**
-     * @param  array<int, array{key: string, type: string, id: int, title: string}>  $assessments
+     * @param  array<int, string>  $bucketKeys
+     * @param  array<string, float>  $weights
      * @param  array<int, array<int, Grade>>  $bestQuizByStudent
      * @param  array<int, array<int, Grade>>  $assignmentByStudent
+     * @return array{
+     *     id: int,
+     *     name: string,
+     *     email: string,
+     *     graded_count: int,
+     *     course_percentage: float|null,
+     *     category_percentages: array<string, float|null>,
+     *     cells: array<string, array{score: float, max_score: float, percentage: float}|null>,
+     * }
      */
-    private function studentRow(Enrollment $enrollment, \Illuminate\Support\Collection $assessments, array $bestQuizByStudent, array $assignmentByStudent): array
+    private function studentRow(Enrollment $enrollment, \Illuminate\Support\Collection $assessments, array $bucketKeys, array $weights, array $bestQuizByStudent, array $assignmentByStudent): array
     {
         $cells = [];
-        $graded = [];
+        $graded = 0;
+        $bucketTotals = [];
+        $bucketCounts = [];
 
         foreach ($assessments as $assessment) {
             $grade = $assessment['type'] === 'quiz'
@@ -174,7 +263,36 @@ class GradebookService
                 'max_score' => (float) $grade->max_score,
                 'percentage' => (float) $grade->percentage,
             ];
-            $graded[] = (float) $grade->percentage;
+
+            $graded++;
+
+            $bucketTotals[$assessment['category_key']] = ($bucketTotals[$assessment['category_key']] ?? 0) + (float) $grade->percentage;
+            $bucketCounts[$assessment['category_key']] = ($bucketCounts[$assessment['category_key']] ?? 0) + 1;
+        }
+
+        // A 0% is a real grade; an empty bucket is not. Unset buckets stay null,
+        // so the frontend can render them as dashes rather than zeroes.
+        $bucketPercentages = [];
+        foreach ($bucketKeys as $key) {
+            $bucketPercentages[$key] = isset($bucketCounts[$key])
+                ? round($bucketTotals[$key] / $bucketCounts[$key], 2)
+                : null;
+        }
+
+        // The weighted mean of the buckets that actually have a grade, over the
+        // weight of just those buckets: a bucket the student never touched does
+        // not drag the course grade (or the denominator) down.
+        $numerator = 0.0;
+        $denominator = 0.0;
+
+        foreach ($bucketPercentages as $key => $percentage) {
+            if ($percentage === null) {
+                continue;
+            }
+
+            $weight = $weights[$key];
+            $numerator += $weight * $percentage;
+            $denominator += $weight;
         }
 
         $student = $enrollment->student;
@@ -183,8 +301,9 @@ class GradebookService
             'id' => $student->id,
             'name' => $student->name,
             'email' => $student->email,
-            'graded_count' => count($graded),
-            'course_percentage' => $graded === [] ? null : round(array_sum($graded) / count($graded), 2),
+            'graded_count' => $graded,
+            'course_percentage' => $graded > 0 && $denominator > 0 ? round($numerator / $denominator, 2) : null,
+            'category_percentages' => $bucketPercentages,
             'cells' => $cells,
         ];
     }
@@ -215,6 +334,29 @@ class GradebookService
         }
 
         return $averages;
+    }
+
+    /**
+     * Add the class average of each bucket, over the students who have a grade
+     * in it (the same rule as a single column).
+     *
+     * @param  array<int, array{key: string}>  $categories
+     * @param  \Illuminate\Support\Collection<int, array{category_percentages: array<string, float|null>}>  $students
+     * @return array<int, array{key: string, id: int|null, name: string, weight: float, assessment_count: int, average: float|null}>
+     */
+    private function withAverages(array $categories, \Illuminate\Support\Collection $students): array
+    {
+        return array_map(function (array $category) use ($students): array {
+            $percentages = $students
+                ->map(fn (array $student): ?float => $student['category_percentages'][$category['key']] ?? null)
+                ->filter(fn (?float $percentage): bool => $percentage !== null)
+                ->values();
+
+            return [
+                ...$category,
+                'average' => $percentages->isNotEmpty() ? round($percentages->avg(), 2) : null,
+            ];
+        }, $categories);
     }
 
     /**

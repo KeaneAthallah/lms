@@ -18,6 +18,7 @@ class Assignment extends Model
 
     protected $fillable = [
         'course_id',
+        'category_id',
         'title',
         'description',
         'instructions',
@@ -42,6 +43,11 @@ class Assignment extends Model
     public function course(): BelongsTo
     {
         return $this->belongsTo(Course::class);
+    }
+
+    public function gradebookCategory(): BelongsTo
+    {
+        return $this->belongsTo(GradebookCategory::class, 'category_id');
     }
 
     public function submissions(): HasMany

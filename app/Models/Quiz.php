@@ -18,6 +18,7 @@ class Quiz extends Model
 
     protected $fillable = [
         'course_id',
+        'category_id',
         'question_bank_id',
         'draw_size',
         'title',
@@ -48,6 +49,11 @@ class Quiz extends Model
     public function course(): BelongsTo
     {
         return $this->belongsTo(Course::class);
+    }
+
+    public function gradebookCategory(): BelongsTo
+    {
+        return $this->belongsTo(GradebookCategory::class, 'category_id');
     }
 
     public function questionBank(): BelongsTo

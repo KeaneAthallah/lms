@@ -24,6 +24,7 @@ use App\Http\Controllers\InstructorAnalyticsController;
 use App\Http\Controllers\InstructorAssignmentController;
 use App\Http\Controllers\InstructorCourseController;
 use App\Http\Controllers\InstructorDashboardController;
+use App\Http\Controllers\InstructorGradebookCategoryController;
 use App\Http\Controllers\InstructorGradebookController;
 use App\Http\Controllers\InstructorLessonController;
 use App\Http\Controllers\InstructorMaterialController;
@@ -186,6 +187,11 @@ Route::prefix('api')->middleware(['auth', 'role:instructor'])->group(function ()
     Route::get('/instructor/courses/{course:slug}/analytics', [InstructorAnalyticsController::class, 'show']);
     Route::get('/instructor/courses/{course:slug}/radar', [InstructorRadarController::class, 'show']);
     Route::get('/instructor/courses/{course:slug}/gradebook', [InstructorGradebookController::class, 'show']);
+    Route::get('/instructor/courses/{course:slug}/gradebook-categories', [InstructorGradebookCategoryController::class, 'index']);
+    Route::post('/instructor/courses/{course:slug}/gradebook-categories', [InstructorGradebookCategoryController::class, 'store']);
+    Route::put('/instructor/courses/{course:slug}/gradebook-categories/{category}', [InstructorGradebookCategoryController::class, 'update']);
+    Route::delete('/instructor/courses/{course:slug}/gradebook-categories/{category}', [InstructorGradebookCategoryController::class, 'destroy']);
+    Route::patch('/instructor/courses/{course:slug}/gradebook-categories/assign', [InstructorGradebookCategoryController::class, 'assign']);
 });
 
 Route::prefix('api')->middleware(['auth', 'role:customer_service'])->group(function (): void {

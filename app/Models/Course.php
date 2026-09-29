@@ -85,6 +85,11 @@ class Course extends Model
         return $this->hasMany(Assignment::class);
     }
 
+    public function gradebookCategories(): HasMany
+    {
+        return $this->hasMany(GradebookCategory::class)->orderBy('sort_order')->orderBy('name');
+    }
+
     public function certificates(): HasMany
     {
         return $this->hasMany(Certificate::class);
