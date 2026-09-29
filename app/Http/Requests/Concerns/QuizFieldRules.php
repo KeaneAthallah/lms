@@ -32,6 +32,8 @@ trait QuizFieldRules
             'passing_score' => ['required', 'numeric', 'between:0,100'],
             'attempts_allowed' => ['required', 'integer', 'min:0'],
             'status' => ['nullable', Rule::in(['active', 'inactive'])],
+            'available_from' => ['nullable', 'date'],
+            'available_until' => ['nullable', 'date', $this->windowOrderRule()],
             'question_bank_id' => ['nullable', 'integer', $this->bankBelongsToCourseRule()],
             'draw_size' => ['nullable', 'integer', 'min:1'],
             'blueprint' => ['nullable', 'array'],
@@ -50,6 +52,25 @@ trait QuizFieldRules
     private function questionTypes(): array
     {
         return array_column(QuizQuestionType::cases(), 'value');
+    }
+
+    /**
+     * A window that never opens cannot hold an exam: the close has to come after
+     * the open. Checked only when both ends are filled in.
+     */
+    private function windowOrderRule(): \Closure
+    {
+        return function (string $attribute, mixed $value, \Closure $fail): void {
+            $from = $this->input('available_from');
+
+            if ($from === null || $from === '' || $value === null) {
+                return;
+            }
+
+            if (strtotime($value) < strtotime($from)) {
+                $fail('The available-until must be after the available-from date.');
+            }
+        };
     }
 
     /**

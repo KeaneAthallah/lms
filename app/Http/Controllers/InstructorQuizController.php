@@ -99,6 +99,8 @@ class InstructorQuizController extends Controller
                 'passing_score' => (float) $quiz->passing_score,
                 'question_bank_id' => $quiz->question_bank_id,
                 'draw_size' => $quiz->draw_size,
+                'available_from' => $quiz->available_from?->format('Y-m-d\TH:i'),
+                'available_until' => $quiz->available_until?->format('Y-m-d\TH:i'),
                 'blueprint' => $this->blueprintPayload($quiz->fresh()),
             ],
         ]);
@@ -171,6 +173,8 @@ class InstructorQuizController extends Controller
                 'course_id' => $quiz->course_id,
                 'question_bank_id' => $quiz->question_bank_id,
                 'draw_size' => $quiz->draw_size,
+                'available_from' => $quiz->available_from?->format('Y-m-d\TH:i'),
+                'available_until' => $quiz->available_until?->format('Y-m-d\TH:i'),
                 'question_bank' => $quiz->questionBank ? [
                     'id' => $quiz->questionBank->id,
                     'title' => $quiz->questionBank->title,

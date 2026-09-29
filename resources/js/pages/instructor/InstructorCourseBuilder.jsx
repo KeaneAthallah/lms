@@ -650,6 +650,8 @@ function QuizModal({ open, onClose, courseSlug, data, run, busy, toast, confirm 
                     question_bank_id: q.question_bank_id ?? '',
                     draw_size: q.draw_size ?? '',
                     blueprint: q.blueprint ?? [],
+                    available_from: q.available_from ?? '',
+                    available_until: q.available_until ?? '',
                 });
                 setQuestions(q.questions ?? []);
                 setErrors({});
@@ -756,9 +758,9 @@ function QuizModal({ open, onClose, courseSlug, data, run, busy, toast, confirm 
         if (ok) loadQuiz();
     };
 
-    const set = (key) => (e) => setSettings((f) => ({ ...f, [key]: ['time_limit_minutes', 'draw_size'].includes(key) && e.target.value === '' ? '' : Number(e.target.value) || e.target.value }));
+    const set = (key) => (e) => setSettings((f) => ({ ...f, [key]: ['time_limit_minutes', 'draw_size', 'available_from', 'available_until'].includes(key) && e.target.value === '' ? '' : Number(e.target.value) || e.target.value }));
 
-    const defaultNew = { title: '', instructions: '', passing_score: 70, attempts_allowed: 1, time_limit_minutes: '', question_bank_id: '', draw_size: '', blueprint: [] };
+    const defaultNew = { title: '', instructions: '', passing_score: 70, attempts_allowed: 1, time_limit_minutes: '', question_bank_id: '', draw_size: '', blueprint: [], available_from: '', available_until: '' };
     const effectiveSettings = quizId ? settings : { ...defaultNew, ...(settings ?? {}) };
     const bankId = effectiveSettings?.question_bank_id || '';
     const bank = banks.find((b) => String(b.id) === String(bankId)) ?? null;
@@ -983,6 +985,24 @@ function QuizSettingsForm({ settings, setSettings, onSubmit, saving, submitLabel
                 </Field>
                 <Field label="Time limit (min)" hint="0 = none.">
                     <Input type="number" min="0" value={settings.time_limit_minutes ?? ''} onChange={setSettings('time_limit_minutes')} />
+                </Field>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Available from" hint="Empty = available immediately.">
+                    <Input
+                        type="datetime-local"
+                        value={settings.available_from ?? ''}
+                        onChange={setSettings('available_from')}
+                    />
+                </Field>
+                <Field label="Available until" hint="Empty = no closing time." error={errors.available_until?.[0]}>
+                    <Input
+                        type="datetime-local"
+                        min={settings.available_from || undefined}
+                        value={settings.available_until ?? ''}
+                        onChange={setSettings('available_until')}
+                    />
                 </Field>
             </div>
 

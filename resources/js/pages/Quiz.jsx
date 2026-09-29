@@ -425,6 +425,24 @@ export default function QuizPage() {
                     </p>
                 ) : null}
 
+                {quiz.availability && quiz.availability !== 'open' ? (
+                    <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                        {quiz.availability === 'not_yet_open' ? (
+                            <>
+                                This quiz opens on{' '}
+                                <span className="font-semibold">{formatWindowMoment(quiz.available_from)}</span>{' '}
+                                and is not available yet.
+                            </>
+                        ) : (
+                            <>
+                                This quiz closed on{' '}
+                                <span className="font-semibold">{formatWindowMoment(quiz.available_until)}</span>{' '}
+                                and is no longer available.
+                            </>
+                        )}
+                    </p>
+                ) : null}
+
                 <div className="mt-6 flex items-center justify-between gap-3">
                     {quiz.lesson?.course_slug ? (
                         <Link to={`/learn/${quiz.lesson.course_slug}`} className="text-sm font-medium text-brand-600 hover:text-brand-700">
@@ -433,7 +451,14 @@ export default function QuizPage() {
                     ) : (
                         <span />
                     )}
-                    <Button onClick={start} loading={busy} size="lg" icon="play">
+                    <Button
+                        onClick={start}
+                        loading={busy}
+                        size="lg"
+                        icon="play"
+                        disabled={quiz.availability != null && quiz.availability !== 'open'}
+                        title={quiz.availability && quiz.availability !== 'open' ? 'This quiz is not available right now.' : undefined}
+                    >
                         {quiz.live_attempt ? 'Resume quiz' : 'Start quiz'}
                     </Button>
                 </div>
@@ -502,6 +527,11 @@ function attemptReviewColor(attempt) {
 function formatDateUppercase(value) {
     if (!value) return '—';
     return new Date(value).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function formatWindowMoment(value) {
+    if (!value) return 'a past date';
+    return new Date(value).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 /**

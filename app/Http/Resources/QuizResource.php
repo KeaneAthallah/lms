@@ -22,6 +22,12 @@ class QuizResource extends JsonResource
             'passing_score' => (float) $this->passing_score,
             'attempts_allowed' => $this->attempts_allowed,
             'status' => $this->status,
+            // The availability window rides along so the overview can explain
+            // itself ("opens ...", "closed ...") without the student clicking the
+            // button and receiving a rejection.
+            'available_from' => $this->available_from?->toISOString(),
+            'available_until' => $this->available_until?->toISOString(),
+            'availability' => $this->availabilityAt(now()),
             // What the student will actually be served, which for a bank quiz is
             // the draw size rather than the (empty) list of attached questions.
             'questions_count' => $this->plannedQuestionCount(),

@@ -39,17 +39,36 @@ class QuizService
     }
 
     /**
+     * The student-facing reason a quiz's window will not let a new attempt begin.
+     *
+     * @param  'not_yet_open'|'open'|'closed'  $availability
+     */
+    public function unavailableMessage(Quiz $quiz, string $availability): string
+    {
+        if ($availability === 'not_yet_open') {
+            return 'This quiz opens on '.$quiz->available_from?->format('M j, Y g:i A').' and is not available yet.';
+        }
+
+        return 'This quiz closed on '.$quiz->available_until?->format('M j, Y g:i A').' and is no longer available.';
+    }
+
+    /**
      * Begin an attempt, or hand back the one already in progress.
      *
-     * @throws ValidationException when the student has no attempts left, or the
-     *                             quiz has nothing to serve
+     * @throws ValidationException when the window is shut, the student has no
+     *                             attempts left, or the quiz has nothing to serve
      */
     public function start(Quiz $quiz, User $student): QuizAttempt
     {
         // The attempt limit is a check-then-insert, so the quiz row is locked for
         // the duration. Without the lock two clicks (or two tabs) both read
         // "one attempt used" and both insert, exceeding `attempts_allowed`.
-        return DB::transaction(function () use ($quiz, $student): QuizAttempt {
+        //
+        // The window rejection is returned from the transaction and raised
+        // outside it, for the same reason `saveDrafts` does that: a window that
+        // closed while an attempt was in flight closes that attempt *first*, and
+        // throwing before the commit would roll the close back with the error.
+        $outcome = DB::transaction(function () use ($quiz, $student): array {
             Quiz::whereKey($quiz->id)->lockForUpdate()->first();
 
             // An attempt the student can still answer is resumed, never replaced.
@@ -59,13 +78,23 @@ class QuizService
             // over fresh full-duration draws.
             if ($live = $quiz->openAttemptFor($student)) {
                 if (! $this->hasExpired($live, $quiz)) {
-                    return $live;
+                    return ['attempt' => $live];
                 }
 
                 // Out of time, and nobody was there to notice. Close it here so
                 // the saved work is scored and recorded rather than left open and
                 // invisible, and so it counts against `attempts_allowed`.
                 $this->closeExpired($live);
+            }
+
+            // The window is a gate on *new* attempts, checked after the resume
+            // above so that a closed window still grades the attempt it noticed
+            // a moment ago (that is what the deadline clamp does) rather than
+            // locking the student out of their own result.
+            $availability = $quiz->availabilityAt(now());
+
+            if ($availability !== 'open') {
+                return ['availability' => $availability];
             }
 
             if (! $this->canStart($quiz, $student)) {
@@ -97,8 +126,16 @@ class QuizService
                 $this->progress->markStarted($quiz->lesson, $student);
             }
 
-            return $attempt;
+            return ['attempt' => $attempt];
         });
+
+        if (isset($outcome['availability'])) {
+            throw ValidationException::withMessages([
+                'attempts' => [$this->unavailableMessage($quiz, $outcome['availability'])],
+            ]);
+        }
+
+        return $outcome['attempt'];
     }
 
     /**
@@ -178,7 +215,7 @@ class QuizService
             throw ValidationException::withMessages([
                 'attempt' => [$rejection === 'submitted'
                     ? 'This attempt has already been submitted.'
-                    : 'The time limit for this quiz has expired.'],
+                    : 'This attempt has expired.'],
             ]);
         }
 

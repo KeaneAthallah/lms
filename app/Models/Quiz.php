@@ -27,6 +27,8 @@ class Quiz extends Model
         'passing_score',
         'attempts_allowed',
         'status',
+        'available_from',
+        'available_until',
     ];
 
     protected function casts(): array
@@ -36,6 +38,8 @@ class Quiz extends Model
             'attempts_allowed' => 'integer',
             'time_limit_minutes' => 'integer',
             'draw_size' => 'integer',
+            'available_from' => 'datetime',
+            'available_until' => 'datetime',
         ];
     }
 
@@ -151,12 +155,18 @@ class Quiz extends Model
     }
 
     /**
-     * When this attempt's clock ran out, or null when the quiz is untimed.
+     * When this attempt has to be handed in by, or null when nothing bounds it.
      *
      * The one place the deadline is worked out. The countdown the client renders,
      * the resume offer on the overview and the check that grades a submission all
      * have to agree, and three copies of `started_at + time_limit_minutes` is
      * three chances to disagree.
+     *
+     * The deadline is the earlier of the time-limit clock counting from the
+     * attempt's start and the hard close of the test window: a window that closes
+     * before the clock runs down ends the attempt, and a window that closes after
+     * it has no say. An attempt with no time limit and no window close has no
+     * deadline at all.
      *
      * Returns a copy because `addMinutes()` mutates the Carbon it is called on,
      * and `started_at` is a cast attribute: adding the limit to it in place would
@@ -164,11 +174,36 @@ class Quiz extends Model
      */
     public function deadlineFor(QuizAttempt $attempt): ?Carbon
     {
-        if (! $this->time_limit_minutes) {
-            return null;
+        $clocks = [];
+
+        if ($this->time_limit_minutes) {
+            $clocks[] = $attempt->started_at->copy()->addMinutes((int) $this->time_limit_minutes);
         }
 
-        return $attempt->started_at->copy()->addMinutes((int) $this->time_limit_minutes);
+        if ($this->available_until) {
+            $clocks[] = $this->available_until;
+        }
+
+        return $clocks === [] ? null : collect($clocks)->min();
+    }
+
+    /**
+     * Where this quiz stands relative to its availability window at a moment in
+     * time. A quiz without a window is always open.
+     *
+     * @return 'not_yet_open'|'open'|'closed'
+     */
+    public function availabilityAt(Carbon $at): string
+    {
+        if ($this->available_from && $this->available_from->isAfter($at)) {
+            return 'not_yet_open';
+        }
+
+        if ($this->available_until && $this->available_until->isBefore($at)) {
+            return 'closed';
+        }
+
+        return 'open';
     }
 
     /**
