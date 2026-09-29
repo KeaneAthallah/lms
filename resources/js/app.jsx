@@ -33,6 +33,7 @@ import InstructorStudents from './pages/instructor/InstructorStudents';
 import InstructorSubmissions from './pages/instructor/InstructorSubmissions';
 import InstructorAnalytics from './pages/instructor/InstructorAnalytics';
 import InstructorRadar from './pages/instructor/InstructorRadar';
+import InstructorGradebook from './pages/instructor/InstructorGradebook';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import AdminUsers from './pages/admin/AdminUsers';
 import AdminRoles from './pages/admin/AdminRoles';
@@ -136,6 +137,10 @@ createRoot(document.getElementById('app')).render(
                     <Route
                         path="/instructor/courses/:slug/radar"
                         element={<ProtectedRoute roles={['instructor', 'admin']}>{inLayout(<InstructorRadar />)}</ProtectedRoute>}
+                    />
+                    <Route
+                        path="/instructor/courses/:slug/gradebook"
+                        element={<ProtectedRoute roles={['instructor', 'admin']}>{inLayout(<InstructorGradebook />)}</ProtectedRoute>}
                     />
 
                     <Route

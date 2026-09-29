@@ -154,6 +154,9 @@ export default function InstructorCourseBuilder() {
                         <ButtonLink to={`/instructor/courses/${course.slug}/radar`} variant="secondary" icon="trendingUp">
                             Learning radar
                         </ButtonLink>
+                        <ButtonLink to={`/instructor/courses/${course.slug}/gradebook`} variant="secondary" icon="listChecks">
+                            Gradebook
+                        </ButtonLink>
                         <Button variant="secondary" icon="eye" onClick={() => window.open(`/courses/${course.slug}`, '_blank')}>
                             Preview
                         </Button>

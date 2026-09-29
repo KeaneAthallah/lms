@@ -24,6 +24,7 @@ use App\Http\Controllers\InstructorAnalyticsController;
 use App\Http\Controllers\InstructorAssignmentController;
 use App\Http\Controllers\InstructorCourseController;
 use App\Http\Controllers\InstructorDashboardController;
+use App\Http\Controllers\InstructorGradebookController;
 use App\Http\Controllers\InstructorLessonController;
 use App\Http\Controllers\InstructorMaterialController;
 use App\Http\Controllers\InstructorQuizController;
@@ -184,6 +185,7 @@ Route::prefix('api')->middleware(['auth', 'role:instructor'])->group(function ()
 
     Route::get('/instructor/courses/{course:slug}/analytics', [InstructorAnalyticsController::class, 'show']);
     Route::get('/instructor/courses/{course:slug}/radar', [InstructorRadarController::class, 'show']);
+    Route::get('/instructor/courses/{course:slug}/gradebook', [InstructorGradebookController::class, 'show']);
 });
 
 Route::prefix('api')->middleware(['auth', 'role:customer_service'])->group(function (): void {
