@@ -80,6 +80,10 @@ class QuizStudentController extends Controller
             'resumed' => $resumed,
             'time_limit_minutes' => $attempt->quiz->time_limit_minutes,
             'expires_at' => $attempt->quiz->deadlineFor($attempt)?->toISOString(),
+            // The end of any late grace, so a student who resumes after the
+            // clock hit zero counts down overtime instead of being submitted
+            // out from under themselves. Null when the quiz grants no grace.
+            'grace_until' => $attempt->quiz->graceDeadlineFor($attempt)?->toISOString(),
         ], $resumed ? 200 : 201);
     }
 
@@ -156,6 +160,7 @@ class QuizStudentController extends Controller
             'attempt' => [
                 'id' => $attempt->id,
                 'status' => $attempt->status->value,
+                'late' => (bool) $attempt->submitted_late,
                 'score' => $attempt->score !== null ? (float) $attempt->score : null,
                 'score_percentage' => $attempt->score_percentage !== null ? (float) $attempt->score_percentage : null,
                 'passed' => $attempt->passed,

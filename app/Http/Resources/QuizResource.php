@@ -22,6 +22,7 @@ class QuizResource extends JsonResource
             'passing_score' => (float) $this->passing_score,
             'attempts_allowed' => $this->attempts_allowed,
             'status' => $this->status,
+            'late_grace_minutes' => $this->late_grace_minutes,
             // The availability window rides along so the overview can explain
             // itself ("opens ...", "closed ...") without the student clicking the
             // button and receiving a rejection.
@@ -50,7 +51,12 @@ class QuizResource extends JsonResource
                 fn (): array => [
                     'id' => $live->id,
                     'started_at' => $live->started_at?->toISOString(),
-                    'expires_at' => $this->deadlineFor($live)?->toISOString(),
+                    // The moment the attempt actually force-closes: the strict
+                    // deadline, or the end of its grace when it has one. An
+                    // attempt offered in grace has a strict deadline in the past,
+                    // and showing that would read as "closes 5 minutes ago".
+                    'expires_at' => $this->answerableUntil($live)?->toISOString(),
+                    'grace_until' => $this->graceDeadlineFor($live)?->toISOString(),
                 ],
             ),
             'best_score' => $user ? ($this->bestAttemptFor($user)?->score_percentage) : null,
@@ -69,6 +75,7 @@ class QuizResource extends JsonResource
                     'score' => $attempt->score !== null ? (float) $attempt->score : null,
                     'score_percentage' => $attempt->score_percentage !== null ? (float) $attempt->score_percentage : null,
                     'passed' => $attempt->passed,
+                    'late' => (bool) $attempt->submitted_late,
                     'reviewable' => $attempt->isGraded(),
                 ])
                 ->all()),

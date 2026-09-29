@@ -64,10 +64,11 @@ class QuizService
         // the duration. Without the lock two clicks (or two tabs) both read
         // "one attempt used" and both insert, exceeding `attempts_allowed`.
         //
-        // The window rejection is returned from the transaction and raised
-        // outside it, for the same reason `saveDrafts` does that: a window that
-        // closed while an attempt was in flight closes that attempt *first*, and
-        // throwing before the commit would roll the close back with the error.
+        // The rejections are returned from the transaction and raised outside it,
+        // for the same reason the window rejection is: a quiz that closed while an
+        // attempt was in flight closes that attempt *first* (see below), and a
+        // simultaneous run-out of attempts must not roll that close back with the
+        // error. Throwing before the commit would undo the expired attempt's close.
         $outcome = DB::transaction(function () use ($quiz, $student): array {
             Quiz::whereKey($quiz->id)->lockForUpdate()->first();
 
@@ -98,19 +99,13 @@ class QuizService
             }
 
             if (! $this->canStart($quiz, $student)) {
-                throw ValidationException::withMessages([
-                    'attempts' => ['You have used all of your allowed attempts for this quiz.'],
-                ]);
+                return ['failure' => 'attempts'];
             }
 
             $questions = $this->resolveQuestions($quiz);
 
             if ($questions->isEmpty()) {
-                throw ValidationException::withMessages([
-                    'quiz' => [$quiz->drawsFromBank()
-                        ? 'This quiz has no questions available yet.'
-                        : 'This quiz has no questions yet.'],
-                ]);
+                return ['failure' => 'questions'];
             }
 
             $attempt = QuizAttempt::create([
@@ -132,6 +127,20 @@ class QuizService
         if (isset($outcome['availability'])) {
             throw ValidationException::withMessages([
                 'attempts' => [$this->unavailableMessage($quiz, $outcome['availability'])],
+            ]);
+        }
+
+        if (($outcome['failure'] ?? null) === 'attempts') {
+            throw ValidationException::withMessages([
+                'attempts' => ['You have used all of your allowed attempts for this quiz.'],
+            ]);
+        }
+
+        if (($outcome['failure'] ?? null) === 'questions') {
+            throw ValidationException::withMessages([
+                'quiz' => [$quiz->drawsFromBank()
+                    ? 'This quiz has no questions available yet.'
+                    : 'This quiz has no questions yet.'],
             ]);
         }
 
@@ -502,7 +511,15 @@ class QuizService
     private function gradeAttempt(QuizAttempt $attempt, array $submitted): QuizAttempt
     {
         $quiz = $attempt->quiz;
+        // `hasExpired` reads the hard cutoff, i.e. the end of any late grace:
+        // an attempt handed in inside the grace is not a failure, it is late.
         $expired = $this->hasExpired($attempt, $quiz);
+
+        // Late means past the strict deadline but still inside the grace that
+        // kept it from being force-closed. The flag is what lets a reader tell
+        // "on time" from "handed in after the bell".
+        $strictDeadline = $quiz->deadlineFor($attempt);
+        $late = ! $expired && $strictDeadline !== null && $strictDeadline->isPast();
 
         // The frozen set, not `$quiz->questions`: a bank quiz owns no
         // questions at all, and a fixed quiz's list can be edited while a
@@ -561,6 +578,7 @@ class QuizService
             'score' => round($totalEarned, 2),
             'score_percentage' => $percentage,
             'passed' => $passed,
+            'submitted_late' => $late,
         ]);
 
         // Record in the unified grade ledger (unique per source).
@@ -594,7 +612,7 @@ class QuizService
     {
         $quiz ??= $attempt->quiz;
 
-        return $quiz->deadlineFor($attempt)?->isPast() ?? false;
+        return $quiz->answerableUntil($attempt)?->isPast() ?? false;
     }
 
     /**

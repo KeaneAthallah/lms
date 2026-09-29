@@ -24,6 +24,7 @@ class QuizAttempt extends Model
         'score',
         'score_percentage',
         'passed',
+        'submitted_late',
     ];
 
     protected function casts(): array
@@ -33,6 +34,7 @@ class QuizAttempt extends Model
             'score' => 'decimal:2',
             'score_percentage' => 'decimal:2',
             'passed' => 'boolean',
+            'submitted_late' => 'boolean',
             'started_at' => 'datetime',
             'submitted_at' => 'datetime',
         ];

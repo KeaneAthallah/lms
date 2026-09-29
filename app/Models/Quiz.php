@@ -29,6 +29,7 @@ class Quiz extends Model
         'status',
         'available_from',
         'available_until',
+        'late_grace_minutes',
     ];
 
     protected function casts(): array
@@ -40,6 +41,7 @@ class Quiz extends Model
             'draw_size' => 'integer',
             'available_from' => 'datetime',
             'available_until' => 'datetime',
+            'late_grace_minutes' => 'integer',
         ];
     }
 
@@ -155,18 +157,17 @@ class Quiz extends Model
     }
 
     /**
-     * When this attempt has to be handed in by, or null when nothing bounds it.
+     * When this attempt's strict clock runs out, or null when nothing bounds it.
      *
-     * The one place the deadline is worked out. The countdown the client renders,
-     * the resume offer on the overview and the check that grades a submission all
-     * have to agree, and three copies of `started_at + time_limit_minutes` is
-     * three chances to disagree.
+     * This is the deadline the student races: the countdown the client renders
+     * counts down to it, and handing in after it (but inside the late grace, see
+     * {@see graceDeadlineFor()}) is a late submission rather than a failure.
      *
-     * The deadline is the earlier of the time-limit clock counting from the
-     * attempt's start and the hard close of the test window: a window that closes
-     * before the clock runs down ends the attempt, and a window that closes after
-     * it has no say. An attempt with no time limit and no window close has no
-     * deadline at all.
+     * The strict deadline is the earlier of the time-limit clock counting from
+     * the attempt's start and the hard close of the test window: a window that
+     * closes before the clock runs down ends the attempt, and a window that
+     * closes after it has no say. An attempt with no time limit and no window
+     * close has no deadline at all.
      *
      * Returns a copy because `addMinutes()` mutates the Carbon it is called on,
      * and `started_at` is a cast attribute: adding the limit to it in place would
@@ -185,6 +186,35 @@ class Quiz extends Model
         }
 
         return $clocks === [] ? null : collect($clocks)->min();
+    }
+
+    /**
+     * The very last moment a late submission is still accepted, or null when the
+     * quiz grants no grace. The strict deadline plus `late_grace_minutes`, so
+     * the silent period between the two is when an attempt is finished and
+     * handed in marked as late. An attempt that was never bounded has no grace
+     * to speak of either -- a grace can only stretch a deadline that exists.
+     */
+    public function graceDeadlineFor(QuizAttempt $attempt): ?Carbon
+    {
+        $deadline = $this->deadlineFor($attempt);
+
+        if ($deadline === null || ! $this->late_grace_minutes) {
+            return null;
+        }
+
+        return $deadline->copy()->addMinutes((int) $this->late_grace_minutes);
+    }
+
+    /**
+     * The moment past which the attempt is force-closed and its work scored as
+     * it stands: the strict deadline when there is no grace, or the end of the
+     * grace when there is. This is what "can the student still answer?" means,
+     * so expiry, save acceptance and the resume offer all key off it.
+     */
+    public function answerableUntil(QuizAttempt $attempt): ?Carbon
+    {
+        return $this->graceDeadlineFor($attempt) ?? $this->deadlineFor($attempt);
     }
 
     /**
@@ -228,6 +258,10 @@ class Quiz extends Model
      * even though it is still open: there is nothing here to sweep it up, so its
      * deadline can pass unnoticed and it would sit open forever. Offering it
      * would promise work that clicking it cannot deliver.
+     *
+     * `answerableUntil()` rather than `deadlineFor()`, so an attempt inside its
+     * late grace is still offered: the student's time has run out but the grace
+     * period is exactly when they are meant to be able to finish.
      */
     public function resumableAttemptFor(User $student): ?QuizAttempt
     {
@@ -237,9 +271,9 @@ class Quiz extends Model
             return null;
         }
 
-        $deadline = $this->deadlineFor($attempt);
+        $until = $this->answerableUntil($attempt);
 
-        return $deadline === null || $deadline->isFuture() ? $attempt : null;
+        return $until === null || $until->isFuture() ? $attempt : null;
     }
 
     public function bestAttemptFor(User $student): ?QuizAttempt

@@ -652,6 +652,7 @@ function QuizModal({ open, onClose, courseSlug, data, run, busy, toast, confirm 
                     blueprint: q.blueprint ?? [],
                     available_from: q.available_from ?? '',
                     available_until: q.available_until ?? '',
+                    late_grace_minutes: q.late_grace_minutes ?? '',
                 });
                 setQuestions(q.questions ?? []);
                 setErrors({});
@@ -758,9 +759,9 @@ function QuizModal({ open, onClose, courseSlug, data, run, busy, toast, confirm 
         if (ok) loadQuiz();
     };
 
-    const set = (key) => (e) => setSettings((f) => ({ ...f, [key]: ['time_limit_minutes', 'draw_size', 'available_from', 'available_until'].includes(key) && e.target.value === '' ? '' : Number(e.target.value) || e.target.value }));
+    const set = (key) => (e) => setSettings((f) => ({ ...f, [key]: ['time_limit_minutes', 'draw_size', 'available_from', 'available_until', 'late_grace_minutes'].includes(key) && e.target.value === '' ? '' : Number(e.target.value) || e.target.value }));
 
-    const defaultNew = { title: '', instructions: '', passing_score: 70, attempts_allowed: 1, time_limit_minutes: '', question_bank_id: '', draw_size: '', blueprint: [], available_from: '', available_until: '' };
+    const defaultNew = { title: '', instructions: '', passing_score: 70, attempts_allowed: 1, time_limit_minutes: '', question_bank_id: '', draw_size: '', blueprint: [], available_from: '', available_until: '', late_grace_minutes: '' };
     const effectiveSettings = quizId ? settings : { ...defaultNew, ...(settings ?? {}) };
     const bankId = effectiveSettings?.question_bank_id || '';
     const bank = banks.find((b) => String(b.id) === String(bankId)) ?? null;
@@ -976,7 +977,7 @@ function QuizSettingsForm({ settings, setSettings, onSubmit, saving, submitLabel
                     <Input value={settings.instructions ?? ''} onChange={setSettings('instructions')} />
                 </Field>
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                 <Field label="Passing %">
                     <Input type="number" min="0" max="100" value={settings.passing_score ?? 70} onChange={setSettings('passing_score')} />
                 </Field>
@@ -985,6 +986,9 @@ function QuizSettingsForm({ settings, setSettings, onSubmit, saving, submitLabel
                 </Field>
                 <Field label="Time limit (min)" hint="0 = none.">
                     <Input type="number" min="0" value={settings.time_limit_minutes ?? ''} onChange={setSettings('time_limit_minutes')} />
+                </Field>
+                <Field label="Late grace (min)" hint="Minutes after the deadline a late submission is still accepted. Empty = none.">
+                    <Input type="number" min="0" value={settings.late_grace_minutes ?? ''} onChange={setSettings('late_grace_minutes')} />
                 </Field>
             </div>
 

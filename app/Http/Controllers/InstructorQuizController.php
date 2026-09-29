@@ -31,8 +31,9 @@ class InstructorQuizController extends Controller
 
         $quiz = DB::transaction(function () use ($course, $request): Quiz {
             $quiz = $course->quizzes()->create([
-                ...$request->safe()->except(['blueprint']),
+                ...$request->safe()->except(['blueprint', 'late_grace_minutes']),
                 'time_limit_minutes' => $request->filled('time_limit_minutes') ? (int) $request->input('time_limit_minutes') : null,
+                'late_grace_minutes' => $request->filled('late_grace_minutes') ? (int) $request->input('late_grace_minutes') : null,
             ]);
 
             $this->syncBlueprint($quiz, $request->input('blueprint'));
@@ -54,6 +55,7 @@ class InstructorQuizController extends Controller
                 'lesson_id' => $lesson->id,
                 'question_bank_id' => $quiz->question_bank_id,
                 'draw_size' => $quiz->draw_size,
+                'late_grace_minutes' => $quiz->late_grace_minutes,
                 'blueprint' => $this->blueprintPayload($quiz),
             ],
         ], 201);
@@ -69,8 +71,9 @@ class InstructorQuizController extends Controller
         // quotas from a quiz that is still drawing from one.
         DB::transaction(function () use ($request, $quiz): void {
             $quiz->update([
-                ...$request->safe()->except(['time_limit_minutes', 'question_bank_id', 'draw_size', 'blueprint']),
+                ...$request->safe()->except(['time_limit_minutes', 'question_bank_id', 'draw_size', 'blueprint', 'late_grace_minutes']),
                 'time_limit_minutes' => $request->filled('time_limit_minutes') ? (int) $request->input('time_limit_minutes') : null,
+                'late_grace_minutes' => $request->filled('late_grace_minutes') ? (int) $request->input('late_grace_minutes') : null,
                 // These form requests describe the whole quiz (`title`,
                 // `passing_score` and `attempts_allowed` are all required), so an
                 // absent bank means "go back to owning its own questions" rather
@@ -101,6 +104,7 @@ class InstructorQuizController extends Controller
                 'draw_size' => $quiz->draw_size,
                 'available_from' => $quiz->available_from?->format('Y-m-d\TH:i'),
                 'available_until' => $quiz->available_until?->format('Y-m-d\TH:i'),
+                'late_grace_minutes' => $quiz->late_grace_minutes,
                 'blueprint' => $this->blueprintPayload($quiz->fresh()),
             ],
         ]);
@@ -175,6 +179,7 @@ class InstructorQuizController extends Controller
                 'draw_size' => $quiz->draw_size,
                 'available_from' => $quiz->available_from?->format('Y-m-d\TH:i'),
                 'available_until' => $quiz->available_until?->format('Y-m-d\TH:i'),
+                'late_grace_minutes' => $quiz->late_grace_minutes,
                 'question_bank' => $quiz->questionBank ? [
                     'id' => $quiz->questionBank->id,
                     'title' => $quiz->questionBank->title,

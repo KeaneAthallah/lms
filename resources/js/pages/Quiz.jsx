@@ -157,7 +157,7 @@ export default function QuizPage() {
         setBusy(true);
         try {
             const { data } = await api.post(`/api/quizzes/${id}/start`);
-            setAttempt({ id: data.attempt.id, expires_at: data.expires_at });
+            setAttempt({ id: data.attempt.id, expires_at: data.expires_at, grace_until: data.grace_until ?? null });
             setQuestions(data.questions ?? []);
             // A resumed attempt opens with its saved answers already in place.
             // Hydrating from the server rather than starting blank is the whole
@@ -259,7 +259,16 @@ export default function QuizPage() {
     useEffect(() => {
         if (mode !== 'running' || !attempt?.expires_at) return;
         const tick = () => {
-            const remaining = Math.floor((new Date(attempt.expires_at).getTime() - Date.now()) / 1000);
+            const now = Date.now();
+            const strictAt = new Date(attempt.expires_at).getTime();
+            const graceAt = attempt.grace_until ? new Date(attempt.grace_until).getTime() : null;
+            // While the strict clock still runs, it is the countdown. Once it
+            // hits zero, an attempt with a grace period keeps counting against
+            // the end of that grace instead of being submitted out from under
+            // the student; an attempt without one submits right at zero.
+            const target = now < strictAt ? strictAt : graceAt;
+            if (target === null) return;
+            const remaining = Math.floor((target - now) / 1000);
             setTimeLeft(remaining);
 
             // Hand the timer in rather than throwing the paper away. Sending
@@ -311,6 +320,15 @@ export default function QuizPage() {
     }
 
     if (mode === 'running') {
+        // True while the strict clock has run out but the late grace has not:
+        // the countdown is running against the end of the grace, not the clock.
+        const inGrace = Boolean(
+            attempt?.grace_until &&
+            timeLeft !== null &&
+            new Date(attempt.expires_at).getTime() <= Date.now() &&
+            new Date(attempt.grace_until).getTime() > Date.now(),
+        );
+
         return (
             <div className="mx-auto max-w-3xl space-y-6">
                 <div className="flex items-center justify-between">
@@ -319,11 +337,11 @@ export default function QuizPage() {
                         <span
                             className={cx(
                                 'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-bold',
-                                timeLeft < 60 ? 'bg-red-50 text-red-600' : 'bg-slate-900 text-white',
+                                inGrace ? 'bg-amber-100 text-amber-700' : timeLeft < 60 ? 'bg-red-50 text-red-600' : 'bg-slate-900 text-white',
                             )}
                         >
                             <Icon name="clock" className="h-4 w-4" />
-                            {formatTime(timeLeft)}
+                            {inGrace ? `Overtime · ${formatTime(timeLeft)}` : formatTime(timeLeft)}
                         </span>
                     ) : null}
                 </div>
@@ -491,7 +509,7 @@ export default function QuizPage() {
                                 <li key={attempt.id} className="flex items-center justify-between gap-3 py-2.5">
                                     <div className="flex items-center gap-2.5">
                                         <Badge color={attemptReviewColor(attempt)}>
-                                            {attempt.status === 'in_progress' ? 'In progress' : attempt.status === 'expired' ? 'Timed out' : 'Graded'}
+                                            {attempt.status === 'in_progress' ? 'In progress' : attempt.late ? 'Late' : attempt.status === 'expired' ? 'Timed out' : 'Graded'}
                                         </Badge>
                                         <span className="text-sm text-slate-500">
                                             {formatDateUppercase(attempt.submitted_at ?? attempt.started_at)}
@@ -519,6 +537,7 @@ export default function QuizPage() {
 
 function attemptReviewColor(attempt) {
     if (attempt.status === 'in_progress') return 'blue';
+    if (attempt.late) return 'amber';
     if (attempt.status === 'expired') return 'amber';
     if (attempt.passed) return 'green';
     return 'red';
@@ -600,6 +619,11 @@ function QuizResult({
                     <div className="mt-4 text-sm text-slate-600">
                         {passed ? "Great work — this lesson is now marked complete." : `You need ${attempt.quiz?.passing_score ?? 0}% to pass.`}
                     </div>
+                    {attempt.late ? (
+                        <p className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
+                            <Icon name="clock" className="h-3 w-3" /> Submitted after the deadline — marked late
+                        </p>
+                    ) : null}
                     <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
                         {overviewHref ? (
                             <ButtonLink to={overviewHref} variant="secondary">

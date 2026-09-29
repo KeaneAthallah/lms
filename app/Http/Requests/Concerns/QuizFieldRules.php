@@ -34,6 +34,9 @@ trait QuizFieldRules
             'status' => ['nullable', Rule::in(['active', 'inactive'])],
             'available_from' => ['nullable', 'date'],
             'available_until' => ['nullable', 'date', $this->windowOrderRule()],
+            // Not `min:1`: zero is a real value ("no grace"), just like the time
+            // limit's zero.
+            'late_grace_minutes' => ['nullable', 'integer', 'min:0'],
             'question_bank_id' => ['nullable', 'integer', $this->bankBelongsToCourseRule()],
             'draw_size' => ['nullable', 'integer', 'min:1'],
             'blueprint' => ['nullable', 'array'],
