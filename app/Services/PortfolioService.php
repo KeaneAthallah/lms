@@ -55,7 +55,10 @@ class PortfolioService
             ->where('student_id', $student->id)
             ->orderByDesc('graded_at')
             ->limit(10)
-            ->with('course:id,title,slug')
+            // The adjustment in force, because this is the student's report of
+            // their grade: showing the recorded score here while the gradebook
+            // shows an instructor's override would be two numbers for one grade.
+            ->with(['course:id,title,slug', 'latestAdjustment'])
             ->get();
 
         $enrollments = Enrollment::query()
@@ -91,9 +94,11 @@ class PortfolioService
             'recent_grades' => $recentGrades->map(fn (Grade $grade) => [
                 'id' => $grade->id,
                 'type' => $grade->type,
-                'score' => (float) $grade->score,
-                'max_score' => (float) $grade->max_score,
-                'percentage' => $grade->percentage !== null ? (float) $grade->percentage : null,
+                'score' => $grade->effectiveScore(),
+                'max_score' => $grade->effectiveMaxScore(),
+                'percentage' => $grade->percentage !== null ? $grade->effectivePercentage() : null,
+                'dropped' => $grade->isDropped(),
+                'overridden' => $grade->isOverridden(),
                 'graded_at' => $grade->graded_at?->toIso8601String(),
                 'course' => $grade->course ? ['id' => $grade->course->id, 'title' => $grade->course->title, 'slug' => $grade->course->slug] : null,
             ])->values()->all(),

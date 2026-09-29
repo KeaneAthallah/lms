@@ -1,6 +1,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../../api';
 import { Button, Card, cx, EmptyState, PageHeader, PageLoader, useToast } from '../../components/ui';
+import GradeAdjustmentHistoryModal from './GradeAdjustmentHistoryModal';
+import GradeAdjustmentModal from './GradeAdjustmentModal';
 import GradebookCategoriesModal from './GradebookCategoriesModal';
 
 function cellColor(percentage) {
@@ -10,11 +12,69 @@ function cellColor(percentage) {
     return 'text-red-600';
 }
 
+/**
+ * One grade cell.
+ *
+ * A grade an instructor has touched is marked rather than silently different: a
+ * dropped grade is struck through and greyed, and an overridden one is labelled,
+ * because a number in a table that nobody can account for is worse than a wrong
+ * one. The percentage shown is always the one that counts towards the course
+ * grade.
+ */
+function GradeCell({ cell, onClick }) {
+    if (!cell) {
+        return (
+            <td className="px-4 py-3 text-center">
+                <span className="text-slate-300">—</span>
+            </td>
+        );
+    }
+
+    const title = [
+        `${cell.score} of ${cell.max_score}`,
+        cell.dropped ? 'Excluded from the course grade' : null,
+        cell.overridden ? `Replaces the recorded ${cell.recorded_score} of ${cell.recorded_max_score}` : null,
+        cell.note,
+    ]
+        .filter(Boolean)
+        .join(' · ');
+
+    return (
+        <td className="px-4 py-3 text-center">
+            <button
+                type="button"
+                onClick={onClick}
+                title={title}
+                className={cx(
+                    'group relative w-full rounded px-1 py-0.5 text-center transition hover:bg-slate-100',
+                    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400',
+                    cell.dropped ? 'opacity-50' : null
+                )}
+            >
+                <span className={cx('font-semibold', cell.dropped ? 'text-slate-400 line-through' : cellColor(cell.percentage))}>
+                    {cell.percentage}%
+                </span>
+                {cell.overridden ? (
+                    <span className="absolute -right-0.5 -top-1 h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+                ) : null}
+                {cell.dropped ? (
+                    <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">Dropped</span>
+                ) : null}
+                {cell.overridden && !cell.dropped ? (
+                    <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-wide text-amber-600">Manual</span>
+                ) : null}
+            </button>
+        </td>
+    );
+}
+
 export default function InstructorGradebook() {
     const slug = location.pathname.split('/')[3];
     const toast = useToast();
     const [data, setData] = useState(null);
     const [settingsOpen, setSettingsOpen] = useState(false);
+    const [historyOpen, setHistoryOpen] = useState(false);
+    const [adjusting, setAdjusting] = useState(null);
 
     const load = useCallback(async () => {
         await api
@@ -62,9 +122,14 @@ export default function InstructorGradebook() {
                 title="Gradebook"
                 subtitle={`${course.title} · ${students.length} students`}
                 actions={
-                    <Button variant="secondary" icon="settings" onClick={() => setSettingsOpen(true)}>
-                        Edit categories
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        <Button variant="secondary" icon="clock" onClick={() => setHistoryOpen(true)}>
+                            Adjustments
+                        </Button>
+                        <Button variant="secondary" icon="settings" onClick={() => setSettingsOpen(true)}>
+                            Edit categories
+                        </Button>
+                    </div>
                 }
             />
 
@@ -125,19 +190,17 @@ export default function InstructorGradebook() {
                                                 </td>
                                                 {assessments.map((assessment) => {
                                                     const cell = student.cells?.[assessment.key];
+
                                                     return (
-                                                        <td key={assessment.key} className="px-4 py-3 text-center">
-                                                            {cell ? (
-                                                                <span
-                                                                    className={cx('font-semibold', cellColor(cell.percentage))}
-                                                                    title={`${cell.score} of ${cell.max_score}`}
-                                                                >
-                                                                    {cell.percentage}%
-                                                                </span>
-                                                            ) : (
-                                                                <span className="text-slate-300">—</span>
-                                                            )}
-                                                        </td>
+                                                        <GradeCell
+                                                            key={assessment.key}
+                                                            cell={cell}
+                                                            onClick={
+                                                                cell
+                                                                    ? () => setAdjusting({ student, assessment, cell })
+                                                                    : undefined
+                                                            }
+                                                        />
                                                     );
                                                 })}
                                                 <td rowSpan={rowSpan} className="sticky right-0 z-10 bg-white px-5 py-3 text-center">
@@ -173,6 +236,18 @@ export default function InstructorGradebook() {
                     </div>
                 </Card>
             )}
+
+            <GradeAdjustmentModal
+                open={Boolean(adjusting)}
+                onClose={() => setAdjusting(null)}
+                onSaved={load}
+                courseSlug={slug}
+                student={adjusting?.student}
+                assessment={adjusting?.assessment}
+                cell={adjusting?.cell}
+            />
+
+            <GradeAdjustmentHistoryModal open={historyOpen} onClose={() => setHistoryOpen(false)} courseSlug={slug} />
 
             <GradebookCategoriesModal
                 open={settingsOpen}

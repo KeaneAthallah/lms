@@ -3,11 +3,15 @@
 namespace App\Services;
 
 use App\EnrollmentStatus;
+use App\GradeAdjustmentAction;
+use App\Models\Assignment;
 use App\Models\AssignmentSubmission;
 use App\Models\Course;
 use App\Models\Enrollment;
 use App\Models\Grade;
+use App\Models\GradeAdjustment;
 use App\Models\GradebookCategory;
+use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
@@ -30,6 +34,14 @@ use Illuminate\Database\Eloquent\Collection;
  * so it does not drag a bucket - or the course grade - down). A course with no
  * categories is a single uncategorized bucket of weight 1, which reproduces the
  * simple mean exactly.
+ *
+ * Cells report the grade as the course stands, not as the grader recorded it: an
+ * instructor's adjustment (a manual score, or a grade excluded from the average)
+ * takes precedence over the ledger row. A dropped cell is still shown -- the
+ * instructor has to see that the grade exists and why it is not counting -- but
+ * it counts for nothing at all: not in the student's total, not in the bucket
+ * subtotal, and not in the class average, since a grade declared not real should
+ * not shape the column either.
  */
 class GradebookService
 {
@@ -52,7 +64,9 @@ class GradebookService
 
         $grades = Grade::where('course_id', $course->id)
             ->whereIn('source_type', [QuizAttempt::class, AssignmentSubmission::class])
-            ->with('source')
+            // The adjustment in force and who set it, for every cell at once
+            // rather than a query per cell when a cell is read.
+            ->with(['source', 'latestAdjustment.adjuster:id,name'])
             ->get();
 
         [$bestQuizByStudent, $assignmentByStudent] = $this->indexedByAssessment($grades);
@@ -237,7 +251,20 @@ class GradebookService
      *     graded_count: int,
      *     course_percentage: float|null,
      *     category_percentages: array<string, float|null>,
-     *     cells: array<string, array{score: float, max_score: float, percentage: float}|null>,
+     *     cells: array<string, array{
+     *         grade_id: int,
+     *         score: float,
+     *         max_score: float,
+     *         percentage: float,
+     *         dropped: bool,
+     *         overridden: bool,
+     *         recorded_score: float,
+     *         recorded_max_score: float,
+     *         recorded_percentage: float,
+     *         adjusted_by: string|null,
+     *         adjusted_at: string|null,
+     *         note: string|null,
+     *     }|null>,
      * }
      */
     private function studentRow(Enrollment $enrollment, \Illuminate\Support\Collection $assessments, array $bucketKeys, array $weights, array $bestQuizByStudent, array $assignmentByStudent): array
@@ -258,15 +285,33 @@ class GradebookService
                 continue;
             }
 
+            $adjustment = $grade->latestAdjustment;
+
+            // Reported with the recorded score alongside it, so an overridden
+            // cell can show what the grader awarded without the two being
+            // mistaken for one another.
             $cells[$assessment['key']] = [
-                'score' => (float) $grade->score,
-                'max_score' => (float) $grade->max_score,
-                'percentage' => (float) $grade->percentage,
+                'grade_id' => (int) $grade->id,
+                'score' => $grade->effectiveScore(),
+                'max_score' => $grade->effectiveMaxScore(),
+                'percentage' => $grade->effectivePercentage(),
+                'dropped' => $grade->isDropped(),
+                'overridden' => $grade->isOverridden(),
+                'recorded_score' => (float) $grade->score,
+                'recorded_max_score' => (float) $grade->max_score,
+                'recorded_percentage' => (float) $grade->percentage,
+                'adjusted_by' => $adjustment?->adjuster?->name,
+                'adjusted_at' => $adjustment?->adjusted_at?->toIso8601String(),
+                'note' => $adjustment?->note,
             ];
+
+            if ($grade->isDropped()) {
+                continue;
+            }
 
             $graded++;
 
-            $bucketTotals[$assessment['category_key']] = ($bucketTotals[$assessment['category_key']] ?? 0) + (float) $grade->percentage;
+            $bucketTotals[$assessment['category_key']] = ($bucketTotals[$assessment['category_key']] ?? 0) + $grade->effectivePercentage();
             $bucketCounts[$assessment['category_key']] = ($bucketCounts[$assessment['category_key']] ?? 0) + 1;
         }
 
@@ -309,11 +354,32 @@ class GradebookService
     }
 
     /**
+     * The percentage one cell contributes to an average, or null when it
+     * contributes nothing.
+     *
+     * Two different absences, and both have to leave the average alone: a cell
+     * with no grade (never sat it) and a cell whose grade was dropped (the
+     * instructor ruled it out). A 0% is a real grade and is kept.
+     *
+     * @param  array{cells: array<string, array{percentage: float, dropped: bool}|null>}  $student
+     */
+    private function countedPercentage(array $student, string $key): ?float
+    {
+        $cell = $student['cells'][$key] ?? null;
+
+        if ($cell === null || $cell['dropped']) {
+            return null;
+        }
+
+        return (float) $cell['percentage'];
+    }
+
+    /**
      * The class average of a column: the mean over the students who have a grade
      * in it, so a column is not dragged down by the students who have not sat it.
      *
      * @param  array<int, string>  $keys
-     * @param  \Illuminate\Support\Collection<int, array{cells: array<string, array{percentage: float}|null>}>  $students
+     * @param  \Illuminate\Support\Collection<int, array{cells: array<string, array{percentage: float, dropped: bool}|null>}>  $students
      * @return array<string, float>
      */
     private function assessmentAverages(array $keys, \Illuminate\Support\Collection $students): array
@@ -321,10 +387,10 @@ class GradebookService
         $averages = [];
 
         foreach ($keys as $key) {
-            // A 0% is a real grade; an ungraded cell is absent. Only the latter
-            // may be dropped, so the filter keeps zeroes.
+            // A 0% is a real grade; an ungraded or dropped cell is absent. Only
+            // the latter may be dropped, so the filter keeps zeroes.
             $percentages = $students
-                ->map(fn (array $student): ?float => $student['cells'][$key]['percentage'] ?? null)
+                ->map(fn (array $student): ?float => $this->countedPercentage($student, $key))
                 ->filter(fn (?float $percentage): bool => $percentage !== null)
                 ->values();
 
@@ -357,6 +423,243 @@ class GradebookService
                 'average' => $percentages->isNotEmpty() ? round($percentages->avg(), 2) : null,
             ];
         }, $categories);
+    }
+
+    /**
+     * The course's trail of grade decisions, newest first.
+     *
+     * The assessment a row refers to is reached through the grade's polymorphic
+     * source, so the titles are resolved in two batched queries rather than one
+     * per row: a trail is read as a list of "who changed what, and when", and
+     * loading it must not cost a query per entry.
+     *
+     * @return array<int, array{
+     *     id: int,
+     *     action: string,
+     *     summary: string,
+     *     from: array{dropped: bool, overridden: bool, score: float|null, max_score: float|null, percentage: float|null},
+     *     dropped: bool,
+     *     score: float|null,
+     *     max_score: float|null,
+     *     percentage: float|null,
+     *     note: string|null,
+     *     adjusted_at: string|null,
+     *     adjuster: array{id: int, name: string}|null,
+     *     student: array{id: int, name: string, email: string},
+     *     assessment: array{key: string, title: string, type: string},
+     * }>
+     */
+    public function recentAdjustments(Course $course, int $limit = 50): array
+    {
+        $adjustments = GradeAdjustment::where('course_id', $course->id)
+            ->with(['adjuster:id,name', 'student:id,name,email', 'grade.source'])
+            ->orderByDesc('adjusted_at')
+            ->orderByDesc('id')
+            ->limit($limit)
+            ->get();
+
+        $titles = $this->assessmentTitles($adjustments->pluck('grade'));
+        $previous = $this->previousStates($adjustments);
+        $shown = $adjustments->keyBy('id');
+
+        return $adjustments->map(function (GradeAdjustment $adjustment) use ($titles, $previous): array {
+            $grade = $adjustment->grade;
+            $type = $grade?->type ?? 'quiz';
+            $source = $grade?->source;
+            $assessmentId = $type === 'quiz' ? $source?->quiz_id : $source?->assignment_id;
+            $key = $assessmentId ? "{$type}-{$assessmentId}" : '';
+            $before = $previous[$adjustment->id];
+
+            return [
+                'id' => (int) $adjustment->id,
+                'action' => $adjustment->action->value,
+                'summary' => $this->describeAdjustment($adjustment, $before),
+                'from' => [
+                    'dropped' => $before['dropped'],
+                    'overridden' => $before['overridden'],
+                    'score' => $before['score'],
+                    'max_score' => $before['max_score'],
+                    'percentage' => $before['percentage'],
+                ],
+                'dropped' => (bool) $adjustment->dropped,
+                'score' => $adjustment->hasOverride() ? (float) $adjustment->score : null,
+                'max_score' => $adjustment->hasOverride() ? (float) $adjustment->max_score : null,
+                'percentage' => $adjustment->hasOverride() ? (float) $adjustment->percentage : null,
+                'note' => $adjustment->note,
+                'adjusted_at' => $adjustment->adjusted_at?->toIso8601String(),
+                'adjuster' => $adjustment->adjuster ? [
+                    'id' => (int) $adjustment->adjuster->id,
+                    'name' => $adjustment->adjuster->name,
+                ] : null,
+                'student' => [
+                    'id' => (int) $adjustment->student_id,
+                    'name' => $adjustment->student?->name ?? 'Unknown',
+                    'email' => $adjustment->student?->email ?? '',
+                ],
+                'assessment' => [
+                    'key' => $key,
+                    'title' => $key === '' ? 'Deleted assessment' : ($titles[$key] ?? 'Deleted assessment'),
+                    'type' => $type,
+                ],
+            ];
+        })->values()->all();
+    }
+
+    /**
+     * What each grade read immediately before each adjustment on the page, keyed
+     * by adjustment id.
+     *
+     * A row records the state after its action, so a trail that said only "now
+     * 80%" would leave a contested mark unanswerable -- the question is always
+     * what it was before. The state before a row is the one below it in the
+     * grade's own chain, which is found in one query over the grades on the page;
+     * for the first adjustment on a grade there is no row below it, and the state
+     * before that is simply the recorded grade.
+     *
+     * @param  \Illuminate\Support\Collection<int, GradeAdjustment>  $adjustments
+     * @return array<int, array{dropped: bool, overridden: bool, score: float|null, max_score: float|null, percentage: float|null}>
+     */
+    private function previousStates(\Illuminate\Support\Collection $adjustments): array
+    {
+        if ($adjustments->isEmpty()) {
+            return [];
+        }
+
+        $shown = $adjustments->keyBy('id');
+
+        $history = GradeAdjustment::whereIn('grade_id', $adjustments->pluck('grade_id')->unique())
+            ->orderBy('id')
+            ->get(['id', 'grade_id', 'dropped', 'score', 'max_score', 'percentage']);
+
+        $previous = [];
+        $older = [];
+
+        foreach ($history as $row) {
+            if ($shown->has($row->id)) {
+                $previous[$row->id] = $older[$row->grade_id] ?? null;
+            }
+
+            $older[$row->grade_id] = $row;
+        }
+
+        return $adjustments
+            ->mapWithKeys(fn (GradeAdjustment $adjustment): array => [
+                $adjustment->id => $this->adjustmentState($previous[$adjustment->id] ?? null, $adjustment->grade),
+            ])
+            ->all();
+    }
+
+    /**
+     * @return array{dropped: bool, overridden: bool, score: float|null, max_score: float|null, percentage: float|null}
+     */
+    private function adjustmentState(?GradeAdjustment $row, ?Grade $grade): array
+    {
+        if ($row === null) {
+            // No adjustment preceded this one, so the grade read exactly as the
+            // grader recorded it.
+            return [
+                'dropped' => false,
+                'overridden' => false,
+                'score' => $grade === null ? null : (float) $grade->score,
+                'max_score' => $grade === null ? null : (float) $grade->max_score,
+                'percentage' => $grade === null ? null : (float) $grade->percentage,
+            ];
+        }
+
+        $overridden = $row->hasOverride();
+
+        return [
+            'dropped' => (bool) $row->dropped,
+            'overridden' => $overridden,
+            'score' => $overridden ? (float) $row->score : null,
+            'max_score' => $overridden ? (float) $row->max_score : null,
+            'percentage' => $overridden ? (float) $row->percentage : null,
+        ];
+    }
+
+    /**
+     * The change in words, phrased once here so the history and a later export
+     * read the same way.
+     *
+     * @param  array{dropped: bool, overridden: bool, score: float|null, max_score: float|null, percentage: float|null}  $before
+     */
+    private function describeAdjustment(GradeAdjustment $adjustment, array $before): string
+    {
+        $to = $adjustment->hasOverride() ? $this->describeNumbers($adjustment->score, $adjustment->max_score, $adjustment->percentage) : null;
+        $from = $before['score'] !== null ? $this->describeNumbers($before['score'], $before['max_score'], $before['percentage']) : null;
+        $wasDropped = $before['dropped'];
+
+        return match ($adjustment->action) {
+            GradeAdjustmentAction::Override => $from ? "Score changed from {$from} to {$to}" : "Score set to {$to}",
+            GradeAdjustmentAction::ClearOverride => $from
+                ? "Score override removed, back to the recorded {$from} instead of the adjusted score"
+                : 'Score override removed',
+            GradeAdjustmentAction::Drop => $adjustment->hasOverride()
+                ? "Excluded from the course grade, keeping the adjusted {$to}"
+                : 'Excluded from the course grade',
+            GradeAdjustmentAction::Restore => $wasDropped ? 'Included in the course grade again' : 'Marked as counting towards the course grade',
+            GradeAdjustmentAction::Annotate => $from && $to ? "Note added, still reported as {$to}" : 'Note added',
+        };
+    }
+
+    /**
+     * "8 of 10 (80%)" -- without the two decimal places the column's own scale
+     * carries, which read as false precision in a sentence about a mark.
+     */
+    private function describeNumbers(float $score, float $maxScore, float $percentage): string
+    {
+        return sprintf(
+            '%s of %s (%s%%)',
+            $this->trimmedNumber($score),
+            $this->trimmedNumber($maxScore),
+            $this->trimmedNumber($percentage)
+        );
+    }
+
+    private function trimmedNumber(float $value): string
+    {
+        return rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.') ?: '0';
+    }
+
+    /**
+     * Assessment titles for the grades in a trail, keyed the way a gradebook
+     * column is keyed (`quiz-12`), in one query per assessment kind.
+     *
+     * @param  \Illuminate\Support\Collection<int, Grade>  $grades
+     * @return array<string, string>
+     */
+    private function assessmentTitles(\Illuminate\Support\Collection $grades): array
+    {
+        $quizIds = [];
+        $assignmentIds = [];
+
+        foreach ($grades as $grade) {
+            $source = $grade?->source;
+
+            if (! $source) {
+                continue;
+            }
+
+            if ($grade->type === 'quiz' && $source->quiz_id) {
+                $quizIds[] = (int) $source->quiz_id;
+            }
+
+            if ($grade->type === 'assignment' && $source->assignment_id) {
+                $assignmentIds[] = (int) $source->assignment_id;
+            }
+        }
+
+        $titles = [];
+
+        foreach (Quiz::whereIn('id', $quizIds)->pluck('title', 'id') as $id => $title) {
+            $titles["quiz-{$id}"] = $title;
+        }
+
+        foreach (Assignment::whereIn('id', $assignmentIds)->pluck('title', 'id') as $id => $title) {
+            $titles["assignment-{$id}"] = $title;
+        }
+
+        return $titles;
     }
 
     /**

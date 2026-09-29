@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../api';
-import { Badge, ButtonLink, EmptyState, Icon, PageHeader, PageLoader, Section, StatCard, formatDate } from '../components/ui';
+import { Badge, ButtonLink, cx, EmptyState, Icon, PageHeader, PageLoader, Section, StatCard, formatDate } from '../components/ui';
 
 const skillStatusMeta = {
     mastered: { color: 'green', label: 'Mastered' },
@@ -89,14 +89,26 @@ function GradesSection({ grades }) {
                                 )}
                             </h3>
                             <p className="text-xs font-medium text-slate-500">
-                                {grade.type} · {formatDate(grade.graded_at)}
+                                {grade.type} � {formatDate(grade.graded_at)}
                             </p>
                         </div>
                         <div className="shrink-0 text-right">
-                            <span className="text-sm font-bold text-slate-800">
+                            <span className={cx('text-sm font-bold', grade.dropped ? 'text-slate-400 line-through' : 'text-slate-800')}>
                                 {grade.percentage !== null ? `${grade.percentage}%` : `${grade.score}/${grade.max_score}`}
                             </span>
-                            {grade.percentage !== null ? <p className="text-xs text-slate-400">{grade.score}/{grade.max_score}</p> : null}
+                            {grade.percentage !== null ? (
+                                <p className={cx('text-xs text-slate-400', grade.dropped ? 'line-through' : null)}>
+                                    {grade.score}/{grade.max_score}
+                                </p>
+                            ) : null}
+                            {/* Say which of these numbers count: a mark that is not
+                                part of the course grade should not read like one
+                                that is. */}
+                            {grade.dropped ? (
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Not counted</p>
+                            ) : grade.overridden ? (
+                                <p className="text-xs font-semibold uppercase tracking-wide text-amber-600">Adjusted</p>
+                            ) : null}
                         </div>
                     </li>
                 ))}
@@ -104,6 +116,7 @@ function GradesSection({ grades }) {
         </Section>
     );
 }
+
 
 function CoursesSection({ courses }) {
     if (!courses.length) return null;

@@ -187,6 +187,8 @@ Route::prefix('api')->middleware(['auth', 'role:instructor'])->group(function ()
     Route::get('/instructor/courses/{course:slug}/analytics', [InstructorAnalyticsController::class, 'show']);
     Route::get('/instructor/courses/{course:slug}/radar', [InstructorRadarController::class, 'show']);
     Route::get('/instructor/courses/{course:slug}/gradebook', [InstructorGradebookController::class, 'show']);
+    Route::get('/instructor/courses/{course:slug}/gradebook/adjustments', [InstructorGradebookController::class, 'adjustmentLog']);
+    Route::put('/instructor/courses/{course:slug}/gradebook/grades/{grade}', [InstructorGradebookController::class, 'adjust']);
     Route::get('/instructor/courses/{course:slug}/gradebook-categories', [InstructorGradebookCategoryController::class, 'index']);
     Route::post('/instructor/courses/{course:slug}/gradebook-categories', [InstructorGradebookCategoryController::class, 'store']);
     Route::put('/instructor/courses/{course:slug}/gradebook-categories/{category}', [InstructorGradebookCategoryController::class, 'update']);
