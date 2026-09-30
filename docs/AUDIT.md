@@ -170,12 +170,22 @@ assignment with `allowed_file_types = null` accepts any file.
 `$user->isInstructor()` only** — an admin passes the `role:instructor` middleware but is then
 rejected by the FormRequest, so admins cannot create content. Frontend and backend disagree.
 **S13 — Icon-only buttons with no accessible name** (`AdminRoles.jsx:126,129`,
-`InstructorCourseBuilder.jsx:748,751`). **S14 — `target="_blank"` without `rel="noreferrer"`**
-(`Certificates.jsx:55,64`, `InstructorSubmissions.jsx:167`). **S15 — `Modal` has no focus trap,
-no Escape handler, no focus restore, no `aria-labelledby`** (`ui.jsx:252-273`, ~8 call sites).
-**S16 — orphaned `role="option"`** with no `role="listbox"` ancestor (`Layout.jsx:120-129`).
+`InstructorCourseBuilder.jsx:748,751`) — **fixed in code, not recorded here**: `IconButton`
+now sets `aria-label` and `title`, and no call site survives, so the controls are `Button` /
+`ButtonLink` with visible text.
+**S14 — `target="_blank"` without `rel="noreferrer"`** (`Certificates.jsx:55,64`,
+`InstructorSubmissions.jsx:167`) — **also already fixed in code**: every remaining
+`target="_blank"` carries `rel="noreferrer"`.
+**S15 — `Modal` has no focus trap, no Escape handler, no focus restore, no `aria-labelledby`**
+(`ui.jsx`, ~8 call sites) — **Fixed**: the shared component now takes focus on open, wraps
+Tab and Shift-Tab inside the panel, closes on Escape, returns focus to whatever opened it,
+and is labelled by its own heading via `useId`.
+**S16 — orphaned `role="option"`** with no `role="listbox"` ancestor (`Layout.jsx:120-129`) —
+**fixed**: the listbox is present.
 **S17 — `variant="ghost"` used 8× but absent from `buttonVariants`** and `color="brand"` absent
-from `badgePalette` → those controls render with no classes at all.
+from `badgePalette` → those controls render with no classes at all — **Fixed**: `ghost` added
+to the palette, and the one surviving `color="brand"` corrected to `color="blue"`, which is
+the key already carrying the brand tints.
 
 ---
 
@@ -194,20 +204,25 @@ from `badgePalette` → those controls render with no classes at all.
 | F9 | 600 kB single JS chunk, no code splitting | `npm run build` warning |
 | F10 | Two independent 8 s pollers on the same chat resources, no `visibilitychange` pause | `ChatWidget.jsx`, `AgentInbox.jsx:41-53` |
 
-### Correctness bug found in the intelligence layer
+### Correctness bugs found in the intelligence layer
 
-**B1 — `MasteryCalculator::loadQuizAttempts` omits `passed` from its column list**
-(`MasteryCalculator.php:221` → `['id','quiz_id','score_percentage','submitted_at']`).
-`LearningMapService.php:93-94` then tests `(bool) $attempt->passed`, which is always `null`.
-**The "skip quizzes already passed" guard is dead code** — a student who has passed a quiz is
+**Both fixed in Phase 1 — kept here because the shape of the bug is the lesson.**
+
+**B1 — `MasteryCalculator::loadQuizAttempts` omitted `passed` from its column list**
+(`['id','quiz_id','score_percentage','submitted_at']`).
+`LearningMapService` then tested `(bool) $attempt->passed`, which was always `null`.
+**The "skip quizzes already passed" guard was dead code** — a student who had passed a quiz was
 still shown it as `upcoming_quiz` with state `ready`. The sibling loader at
-`LearningInsightService.php:115` does select `passed`, which is exactly why no test catches it.
+`LearningInsightService.php:115` did select `passed`, which is exactly why no test caught it.
+`passed` (and `status`) are now in the column list.
 
-**B2 — the same loader starves `time_limit_minutes` and `questions_count`**
-(`MasteryCalculator.php:202` → `quiz:id,course_id,title`). Every `upcoming_quiz.lesson` served
-through the learning map therefore reports `estimated_minutes: 5, estimated: true`, and the same
-quiz via `/api/quizzes/{quiz}/readiness` reports the real time limit. **Two endpoints disagree
-about the same quiz.**
+**B2 — the same loader starved `time_limit_minutes` and `questions_count`**
+(`quiz:id,course_id,title`). Every `upcoming_quiz.lesson` served through the learning map
+therefore reported `estimated_minutes: 5, estimated: true`, while the same quiz via
+`/api/quizzes/{quiz}/readiness` reported the real time limit. **Two endpoints disagreed about
+the same quiz.** The select now carries `passing_score` and `time_limit_minutes`, with
+`withCount('questions')` *after* the `select` — ordering that matters, because `withCount` adds a
+sub-select that is dropped if it does not follow.
 
 ---
 
@@ -258,7 +273,7 @@ Two contract smells worth recording before they calcify:
 **Phase 3** media abstraction, notes, bookmarks, reviews, discussions.
 **Phase 4** live sessions, calendar, attendance, notification preferences, queued mail.
 **Phase 5** reporting, import/export, settings store, audit log, permission matrix, `tenant_id` scaffolding.
-**Phase 6** i18n layer, PWA, WCAG 2.2 AA sweep, `ghost`/`brand` variant bugs, modal focus management.
+**Phase 6** i18n layer, PWA, WCAG 2.2 AA sweep, `ghost`/`brand` variant bugs, modal focus management (variant bugs and modal focus done).
 **Phase 7** caching, queues, chunked analytics, code splitting.
 **Phase 8** frontend test runner, E2E for the 8 required journeys.
 **Phase 9** visual polish.
@@ -313,6 +328,7 @@ Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 te
 | 38 | Question versioning (A6) | Freezing the paper stops an edit rewriting an attempt, but the author was still blocked from correcting a question mid-term, so the only options were "live with the mistake" or "change it and invalidate the results". `quiz_questions` gains `version` and a self-referencing `replaced_by_id`: saving a question that is already in a paper writes a new owned row at `version + 1`, detaches the served row (its owner columns nulled) and points it at its successor, all in one transaction. The chain is walkable forward via `replacedBy()`, the served attempt keeps reading its own row, and a fresh draw reads the head. An unused question is still edited in place, so authoring a quiz from scratch produces no version history. The model invariant was relaxed to accept a detached row (no owner, but a successor), which is what makes the fork representable. `QuestionEditor` owns question authoring for both controllers, so the quiz and bank paths cannot drift; quiz show eager loads `withExists('attemptSnapshots')` to keep the per-question `in_use` flag off N+1. The builder confirms the fork before opening the editor, badges the version, and toasts the server's own message. Delete stays blocked while in use. | `QuestionVersioningTest`, `QuestionBankTest` |
 | 39 | Grade adjustments: overrides, dropped grades, audit trail (B2) | A grader's row and an instructor's decision about it were the same fact, so the only way to change a mark in the gradebook was to rewrite the ledger -- destroying the evidence a student contests a mark with, and leaving no record that anyone had. Adjustments are now an append-only `grade_adjustments` log where each row is the complete state in force *after* that action, so the current state is the newest row per grade and the `grades` row stays exactly what the grader produced. Four decisions: a manual score (a complete score/max/percentage triple, the max defaulting to the graded maximum so a bare score cannot report 800%), excluding a grade from the course grade, restoring it, and a note. Dropping and overriding are independent -- neither undoes the other. A dropped cell stays visible in the grid (an instructor has to see the grade exists and why it is not counting) but counts for nothing: not the student's total, not its category subtotal, not `graded_count`, and not the column or category class average, since a grade ruled out should not shape the column either. A cell reports the recorded score alongside the effective one, so the two are never mistaken for each other. Re-saving what is already in force records nothing, so a dialog cannot pad the trail with no-ops. The trail endpoint pairs consecutive rows per grade to say what a grade was *before* each change (the question a dispute always asks), falling back to the recorded grade for a grade's first adjustment, and resolves assessment titles in two batched queries; the change is phrased once server-side so the history and a later export read alike. `PortfolioService` now reports effective scores too, because a student seeing 60% where the gradebook says 80% is the bug, not a feature. A regrade of the underlying attempt does *not* discard an adjustment -- silently reverting a human decision is worse than the stale number, and both remain visible. | `InstructorGradebookAdjustmentTest`, `PortfolioTest` |
 | 40 | Gradebook CSV/XLSX export (B2) | The gradebook could only be read on screen, so the mark an instructor defends to a student existed in exactly one place and had to be retyped into whatever the university asked for. Two owner-scoped GETs now write the grid and the full audit trail to CSV or XLSX (`?format=`, validated, anything else a 422) and stream them as an attachment named for the course and the day. Neither writer is handed a query: `GradebookExport` builds rows from `GradebookService::courseGradebook()` and `recentAdjustments()` and flattens every cell through one normaliser, so an export cannot disagree with the page it was copied from, and a dropped grade reads the same in both. The trail export takes the whole log rather than the page's 50 (`recentAdjustments(null)`), because a partial audit trail exported as "the audit trail" is worse than none. Four decisions the file format forces. Excluded grades are **empty cells**, never zero, since a spreadsheet averages a blank away and a zero in -- and in a workbook the cell is written with its fill and no value so the styling survives. Effective percentages are numbers, not text, so the receiving spreadsheet can compute on them; a text "80" cannot be averaged. A value a spreadsheet would execute (a student named `=HYPERLINK(...)`, which then runs in the *instructor's* copy of the file) is escaped, and CSV carries a UTF-8 BOM because Excel otherwise decodes every accented name in the gradebook as the local codepage. XLSX is a hand-built OOXML package -- `ZipArchive` was already available, and a dependency is not a trade worth making for two sheets. `DropdownItem` renders an `<a>` when given an `href`, so the export is a real link: the server names the file and save-as still works. | `GradebookExportTest` |
+| 41 | Dialog focus management and the two unstyled controls (P6) | A modal that the keyboard can walk straight out of is worse than no modal, because the user is left editing the form they believe they dismissed: `Modal` now takes focus on open, wraps Tab and Shift-Tab inside the panel, closes on Escape, and returns focus to whatever opened it — so all ~8 call sites inherit the behaviour from the one shared component. It is labelled by its own heading through `useId`, which also means a dialog with a repeated title no longer produces duplicate ids. Three details the obvious version gets wrong. `onClose` is held in a ref, because every call site passes an inline `() => setOpen(false)`; depending on it re-runs the effect on each render and yanks focus back to the first field on every keystroke. The visible-element test is `getClientRects()`, not `offsetParent`, which is unreliable for a subtree inside the fixed overlay. And the listener is on the capture phase, so Escape does not also close a dropdown behind the dialog. Separately, `variant="ghost"` was used but never defined and `color="brand"` was never in the palette, so those two controls rendered with **no classes at all** — `ghost` added, and the badge corrected to `blue`, the key that already carries the brand tints. S13, S14 and S16 turned out to be fixed in code but unrecorded, and the §6 B1/B2 prose described bugs that were already closed; all four are corrected rather than left to read as open. No test runner exists for the frontend, so this slice is verified by build and by review, not by a test. | — (frontend) |
 
 ### Notes and residual risk
 
@@ -333,4 +349,5 @@ Baseline before this pass: **96 tests, 376 assertions**. After Phase 1: **155 te
 ### Follow-ups worth prioritising next
 
 1. Certificate PDF generation — certificates are currently data-only with no printable artifact.
-2. The frontend items in §6/§7, which are cosmetic and accessibility work rather than correctness.
+2. The remaining frontend items in §6/§7 — the unstyled-variant and modal-focus findings are closed, so what is left is code splitting (F9) and the two chat pollers (F10), which are performance work rather than correctness.
+3. A frontend test runner. Four §5 findings sat fixed-in-code-but-undocumented for the whole project, which is the argument for one: nothing could see that `IconButton` had lost all its call sites.

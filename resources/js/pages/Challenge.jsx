@@ -27,7 +27,7 @@ function ChallengeQuiz({ challenge, onReset }) {
                         <Badge color={result.percent >= 75 ? 'green' : result.percent >= 60 ? 'amber' : 'red'} dot>
                             {result.correct_count}/{result.total} correct
                         </Badge>
-                        <Badge color="brand" dot>{result.percent}%</Badge>
+                        <Badge color="blue" dot>{result.percent}%</Badge>
                     </div>
                 }
             >

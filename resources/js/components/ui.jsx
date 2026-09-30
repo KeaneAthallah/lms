@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { Icon } from './icons';
@@ -8,6 +8,17 @@ export { Icon };
 export function cx(...parts) {
     return parts.filter(Boolean).join(' ');
 }
+
+// Everything a keyboard can land on. Queried in document order, which is the
+// order tabbing visits it, so this is also the trap order inside a dialog.
+const FOCUSABLE = [
+    'a[href]',
+    'button:not([disabled])',
+    'input:not([disabled])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])',
+].join(',');
 
 /* ---------------------------------- Toasts --------------------------------- */
 
@@ -80,6 +91,7 @@ primary: 'bg-brand-600 text-white hover:bg-brand-700 focus-visible:outline-brand
     danger: 'bg-red-600 text-white hover:bg-red-700 shadow-sm dark:text-gray-50',
     success: 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm dark:text-gray-50',
     dark: 'bg-slate-900 text-white hover:bg-slate-800 shadow-sm dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-gray-200',
+    ghost: 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
 };
 
 const buttonSizes = {
@@ -250,17 +262,95 @@ export function EmptyState({ icon = 'book', title, message, action, className })
 }
 
 export function Modal({ open, onClose, title, children, footer, size = 'md' }) {
+    const panel = useRef(null);
+    const titleId = useId();
+
+    // Call sites pass an inline `() => setOpen(false)`, so this changes identity
+    // every render. Depending on it would re-run the effect below and yank focus
+    // back to the first field on every keystroke.
+    const onCloseRef = useRef(onClose);
+    onCloseRef.current = onClose;
+
+    // A dialog the keyboard cannot leave. Tabbing out of one strands focus on the
+    // page behind it, so a screen-reader user ends up editing the form they thought
+    // they had dismissed.
+    useEffect(() => {
+        if (!open) return undefined;
+
+        const returnFocusTo = document.activeElement;
+        // `getClientRects()` rather than `offsetParent`: the dialog is inside a
+        // fixed overlay, and offsetParent is unreliable for those descendants.
+        const focusable = () =>
+            [...(panel.current?.querySelectorAll(FOCUSABLE) ?? [])].filter(
+                (element) => !element.disabled && element.getClientRects().length > 0,
+            );
+
+        (focusable()[0] ?? panel.current)?.focus();
+
+        const onKeyDown = (event) => {
+            if (event.key === 'Escape') {
+                event.stopPropagation();
+                onCloseRef.current();
+                return;
+            }
+
+            if (event.key !== 'Tab') return;
+
+            const elements = focusable();
+
+            if (!elements.length) {
+                event.preventDefault();
+                return;
+            }
+
+            const first = elements[0];
+            const last = elements[elements.length - 1];
+            const next = event.shiftKey ? document.activeElement === first : document.activeElement === last;
+
+            if (next) {
+                event.preventDefault();
+                (event.shiftKey ? last : first).focus();
+            }
+        };
+
+        document.addEventListener('keydown', onKeyDown, true);
+
+        return () => {
+            document.removeEventListener('keydown', onKeyDown, true);
+
+            if (returnFocusTo instanceof HTMLElement && document.contains(returnFocusTo)) {
+                returnFocusTo.focus();
+            }
+        };
+    }, [open]);
+
     if (!open) return null;
 
     const widths = { sm: 'max-w-md', md: 'max-w-lg', lg: 'max-w-3xl' };
 
     return createPortal(
-        <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true">
+        <div
+            className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+        >
             <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" onClick={onClose} />
-            <div className={cx('relative w-full rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl', widths[size], 'max-h-[92vh] overflow-y-auto')}>
+            <div
+                ref={panel}
+                tabIndex={-1}
+                className={cx('relative w-full rounded-t-2xl bg-white shadow-2xl outline-none sm:rounded-2xl', widths[size], 'max-h-[92vh] overflow-y-auto')}
+            >
                 <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-                    <h3 className="text-base font-semibold text-slate-900">{title}</h3>
-                    <button type="button" onClick={onClose} aria-label="Close" className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+                    <h3 id={titleId} className="text-base font-semibold text-slate-900">
+                        {title}
+                    </h3>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        aria-label="Close"
+                        className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                    >
                         <Icon name="x" className="h-5 w-5" />
                     </button>
                 </div>
