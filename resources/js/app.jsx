@@ -1,8 +1,9 @@
+import { lazy, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './auth';
 import { ThemeProvider } from './theme';
-import { ToastProvider } from './components/ui';
+import { PageLoader, ToastProvider } from './components/ui';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import Home from './pages/Home';
@@ -10,39 +11,53 @@ import Browse from './pages/Browse';
 import CourseDetail from './pages/CourseDetail';
 import Login from './pages/Login';
 import Register from './pages/Register';
-import MyCourses from './pages/MyCourses';
-import StudentDashboard from './pages/StudentDashboard';
-import LearningInsights from './pages/LearningInsights';
-import LearningMap from './pages/LearningMap';
-import ChallengePage from './pages/Challenge';
-import Portfolio from './pages/Portfolio';
-import Learn from './pages/Learn';
-import QuizPage from './pages/Quiz';
-import QuizReview from './pages/QuizReview';
-import AssignmentPage from './pages/Assignment';
-import Grades from './pages/Grades';
-import Certificates from './pages/Certificates';
-import Notifications from './pages/Notifications';
-import Profile from './pages/Profile';
 import VerifyCertificate from './pages/VerifyCertificate';
-import AgentInbox from './pages/support/AgentInbox';
-import InstructorDashboard from './pages/instructor/InstructorDashboard';
-import InstructorCourses from './pages/instructor/InstructorCourses';
-import InstructorCourseBuilder from './pages/instructor/InstructorCourseBuilder';
-import InstructorStudents from './pages/instructor/InstructorStudents';
-import InstructorSubmissions from './pages/instructor/InstructorSubmissions';
-import InstructorAnalytics from './pages/instructor/InstructorAnalytics';
-import InstructorRadar from './pages/instructor/InstructorRadar';
-import InstructorGradebook from './pages/instructor/InstructorGradebook';
-import AdminDashboard from './pages/admin/AdminDashboard';
-import AdminUsers from './pages/admin/AdminUsers';
-import AdminRoles from './pages/admin/AdminRoles';
-import AdminCategories from './pages/admin/AdminCategories';
-import AdminCourses from './pages/admin/AdminCourses';
-import AdminEnrollments from './pages/admin/AdminEnrollments';
-import AdminCertificates from './pages/admin/AdminCertificates';
 
-const inLayout = (element) => <Layout>{element}</Layout>;
+// Every page behind a login is fetched the first time it is opened. Statically
+// importing all thirty-five meant a student who only reads lessons also
+// downloaded the admin analytics page and every instructor tool, in one 650 kB
+// bundle, before the first frame. The six pages an unauthenticated visitor can
+// actually reach stay in the entry chunk so the landing page still paints from
+// the initial request.
+const MyCourses = lazy(() => import('./pages/MyCourses'));
+const StudentDashboard = lazy(() => import('./pages/StudentDashboard'));
+const LearningInsights = lazy(() => import('./pages/LearningInsights'));
+const LearningMap = lazy(() => import('./pages/LearningMap'));
+const ChallengePage = lazy(() => import('./pages/Challenge'));
+const Portfolio = lazy(() => import('./pages/Portfolio'));
+const Learn = lazy(() => import('./pages/Learn'));
+const QuizPage = lazy(() => import('./pages/Quiz'));
+const QuizReview = lazy(() => import('./pages/QuizReview'));
+const AssignmentPage = lazy(() => import('./pages/Assignment'));
+const Grades = lazy(() => import('./pages/Grades'));
+const Certificates = lazy(() => import('./pages/Certificates'));
+const Notifications = lazy(() => import('./pages/Notifications'));
+const Profile = lazy(() => import('./pages/Profile'));
+const AgentInbox = lazy(() => import('./pages/support/AgentInbox'));
+const InstructorDashboard = lazy(() => import('./pages/instructor/InstructorDashboard'));
+const InstructorCourses = lazy(() => import('./pages/instructor/InstructorCourses'));
+const InstructorCourseBuilder = lazy(() => import('./pages/instructor/InstructorCourseBuilder'));
+const InstructorStudents = lazy(() => import('./pages/instructor/InstructorStudents'));
+const InstructorSubmissions = lazy(() => import('./pages/instructor/InstructorSubmissions'));
+const InstructorAnalytics = lazy(() => import('./pages/instructor/InstructorAnalytics'));
+const InstructorRadar = lazy(() => import('./pages/instructor/InstructorRadar'));
+const InstructorGradebook = lazy(() => import('./pages/instructor/InstructorGradebook'));
+const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
+const AdminUsers = lazy(() => import('./pages/admin/AdminUsers'));
+const AdminRoles = lazy(() => import('./pages/admin/AdminRoles'));
+const AdminCategories = lazy(() => import('./pages/admin/AdminCategories'));
+const AdminCourses = lazy(() => import('./pages/admin/AdminCourses'));
+const AdminEnrollments = lazy(() => import('./pages/admin/AdminEnrollments'));
+const AdminCertificates = lazy(() => import('./pages/admin/AdminCertificates'));
+
+// The boundary sits inside the layout on purpose: an outer one would swap the
+// whole document for a spinner and take the navigation with it, so a route change
+// would feel like the app had reloaded.
+const inLayout = (element) => (
+    <Layout>
+        <Suspense fallback={<PageLoader />}>{element}</Suspense>
+    </Layout>
+);
 
 createRoot(document.getElementById('app')).render(
     <ToastProvider>

@@ -3,6 +3,7 @@ import api from '../../api';
 import { useAuth } from '../../auth';
 import ChatThread from '../../components/ChatThread';
 import { Avatar, Badge, Button, cx, EmptyState, Icon, PageHeader, PageLoader, timeAgo, useToast } from '../../components/ui';
+import { usePolling } from '../../hooks';
 
 export default function AgentInbox() {
     const { user } = useAuth();
@@ -38,19 +39,22 @@ export default function AgentInbox() {
         }
     }, [loadConversations, toast]);
 
-    useEffect(() => {
-        if (!activeId) return undefined;
-        const timer = window.setInterval(async () => {
+    // The list is loaded on mount and refreshed after every write; only the
+    // messages in the open thread need a timer.
+    usePolling(
+        async () => {
+            if (!activeId) return;
+
             try {
                 const { data } = await api.get(`/api/support/conversations/${activeId}`);
                 setMessages(data.messages);
-                loadConversations();
+                setConversations((prev) => prev.map((c) => (c.id === activeId ? data.conversation : c)));
             } catch {
                 /* ignore */
             }
-        }, 8000);
-        return () => window.clearInterval(timer);
-    }, [activeId, loadConversations]);
+        },
+        { enabled: Boolean(activeId) },
+    );
 
     const sendMessage = async (body) => {
         if (!activeId) return;

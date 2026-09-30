@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import api from '../api';
 import { useAuth } from '../auth';
+import { usePolling } from '../hooks';
 import ChatThread from './ChatThread';
 import { Avatar, Badge, Button, cx, Field, Icon, Input, Textarea, timeAgo, useToast } from './ui';
 
@@ -30,11 +31,6 @@ export default function ChatWidget() {
         loadConversations().finally(() => setLoading(false));
     }, [loadConversations]);
 
-    useEffect(() => {
-        const timer = window.setInterval(loadConversations, 8000);
-        return () => window.clearInterval(timer);
-    }, [loadConversations]);
-
     const openConversation = useCallback(
         async (id) => {
             setActiveId(id);
@@ -52,19 +48,23 @@ export default function ChatWidget() {
         [loadConversations, toast],
     );
 
-    useEffect(() => {
-        if (!open || !activeId) return undefined;
-        const timer = window.setInterval(async () => {
-            try {
-                const { data } = await api.get(`/api/support/conversations/${activeId}`);
-                setMessages(data.messages);
-                loadConversations();
-            } catch {
-                /* ignore */
-            }
-        }, 8000);
-        return () => window.clearInterval(timer);
-    }, [open, activeId, loadConversations]);
+    // One timer for both halves. These were two intervals, and the thread one also
+    // reloaded the list, so an open thread hit the conversations endpoint twice per
+    // tick. The list still has to refresh on its own: another conversation can go
+    // unread while this one is open.
+    usePolling(async () => {
+        if (!open || !activeId) return;
+
+        try {
+            const { data } = await api.get(`/api/support/conversations/${activeId}`);
+            setMessages(data.messages);
+            setConversations((prev) => prev.map((c) => (c.id === activeId ? data.conversation : c)));
+        } catch {
+            /* ignore */
+        }
+
+        await loadConversations();
+    });
 
     const sendMessage = async (body) => {
         if (!activeId) return;
