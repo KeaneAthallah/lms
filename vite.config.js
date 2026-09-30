@@ -42,5 +42,11 @@ export default defineConfig(({ mode }) => {
                 ignored: ['**/storage/framework/views/**'],
             },
         },
+        test: {
+            environment: 'jsdom',
+            globals: true,
+            setupFiles: ['./resources/js/test/setup.js'],
+            include: ['resources/js/**/*.test.{js,jsx}'],
+        },
     };
 });
