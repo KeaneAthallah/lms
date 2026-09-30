@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\LessonType;
+use App\Models\Assignment;
+use App\Models\AssignmentSubmission;
 use App\Models\Course;
 use App\Models\CourseSection;
 use App\Models\Lesson;
@@ -38,14 +40,14 @@ class LearningInsightsTest extends TestCase
         (new EnrollmentService)->enroll($student, $course);
     }
 
-    private function completeLesson(User $student, Lesson $lesson): void
+    private function completeLesson(User $student, Lesson $lesson, mixed $completedAt = null): void
     {
         LessonProgress::create([
             'student_id' => $student->id,
             'course_id' => $lesson->course_id,
             'lesson_id' => $lesson->id,
             'progress_percent' => 100,
-            'completed_at' => now(),
+            'completed_at' => $completedAt ?? now(),
             'last_accessed_at' => now(),
         ]);
     }
@@ -385,5 +387,158 @@ class LearningInsightsTest extends TestCase
             ->assertJsonPath('data.study_plan.0.minutes', 5)
             ->assertJsonPath('data.study_plan.0.estimated', false)
             ->assertJsonPath('data.summary.study_plan_total_minutes', 5);
+    }
+
+    public function test_the_momentum_window_counts_only_the_last_seven_days(): void
+    {
+        $student = User::factory()->student()->create();
+        [$course, $lessons] = $this->makeCourse(3);
+        $this->enroll($student, $course);
+
+        $this->completeLesson($student, $lessons->first(), now()->subDays(20));
+        $this->completeLesson($student, $lessons->get(1), now()->subDay());
+        $this->completeLesson($student, $lessons->get(2), now());
+
+        $this->attempt($student, $this->quiz($course), now()->subDays(9));
+        $this->attempt($student, $this->quiz($course), now()->subDays(2));
+        $this->submission($student, $this->assignment($course), now()->subDays(30));
+        $this->submission($student, $this->assignment($course), now()->subHours(3));
+
+        $momentum = $this->momentum($student);
+
+        $this->assertSame(2, $momentum['lessons_completed_7d'], 'A lesson completed 20 days ago is not this week.');
+        $this->assertSame(1, $momentum['quiz_attempts_7d']);
+        $this->assertSame(1, $momentum['submissions_7d'], 'Only the graded submission counts, and only this week.');
+    }
+
+    public function test_a_streak_counts_consecutive_active_days_not_events(): void
+    {
+        $student = User::factory()->student()->create();
+        [$course, $lessons] = $this->makeCourse(4);
+        $this->enroll($student, $course);
+
+        $this->completeLesson($student, $lessons->get(0), now());
+        $this->completeLesson($student, $lessons->get(1), now()->subDay());
+        $this->completeLesson($student, $lessons->get(2), now()->subDays(2));
+        $this->completeLesson($student, $lessons->get(3), now()->subDays(3));
+
+        // Several events on one day are still one day of a streak.
+        $this->attempt($student, $this->quiz($course), now());
+
+        $this->assertSame(4, $this->momentum($student)['streak_days']);
+    }
+
+    public function test_a_streak_breaks_on_a_day_with_no_activity(): void
+    {
+        $student = User::factory()->student()->create();
+        [$course, $lessons] = $this->makeCourse(3);
+        $this->enroll($student, $course);
+
+        $this->completeLesson($student, $lessons->get(0), now());
+        $this->completeLesson($student, $lessons->get(1), now()->subDay());
+        // Nothing on the day before that.
+        $this->completeLesson($student, $lessons->get(2), now()->subDays(4));
+
+        $this->assertSame(2, $this->momentum($student)['streak_days']);
+    }
+
+    public function test_a_streak_survives_a_day_that_is_not_over_yet(): void
+    {
+        $student = User::factory()->student()->create();
+        [$course, $lessons] = $this->makeCourse(3);
+        $this->enroll($student, $course);
+
+        $this->completeLesson($student, $lessons->get(0), now()->subDay());
+        $this->completeLesson($student, $lessons->get(1), now()->subDays(2));
+
+        $this->assertSame(
+            2,
+            $this->momentum($student)['streak_days'],
+            'A streak is still alive until a whole day is missed.'
+        );
+    }
+
+    public function test_a_streak_that_ended_two_days_ago_is_not_a_streak(): void
+    {
+        $student = User::factory()->student()->create();
+        [$course, $lessons] = $this->makeCourse(2);
+        $this->enroll($student, $course);
+
+        $this->completeLesson($student, $lessons->get(0), now()->subDays(2));
+        $this->completeLesson($student, $lessons->get(1), now()->subDays(3));
+
+        $this->assertSame(0, $this->momentum($student)['streak_days']);
+    }
+
+    public function test_last_activity_is_the_newest_thing_the_student_did_of_any_kind(): void
+    {
+        $student = User::factory()->student()->create();
+        [$course, $lessons] = $this->makeCourse();
+        $this->enroll($student, $course);
+
+        $this->completeLesson($student, $lessons->first(), now()->subDays(4));
+        $newest = $this->attempt($student, $this->quiz($course), now()->subHour());
+
+        $this->assertSame(
+            $newest->submitted_at->toIso8601String(),
+            $this->momentum($student)['last_activity_at'],
+            'A quiz attempt is activity, and it is the newest thing here.'
+        );
+    }
+
+    public function test_last_activity_falls_back_to_the_enrollment_when_nothing_else_is_recorded(): void
+    {
+        $student = User::factory()->student()->create();
+        [$course] = $this->makeCourse();
+        $this->enroll($student, $course);
+
+        $lastAccess = now()->subDays(3);
+        $student->enrollments()->update(['last_accessed_at' => $lastAccess]);
+
+        $this->assertSame(
+            $lastAccess->toIso8601String(),
+            $this->momentum($student)['last_activity_at']
+        );
+    }
+
+    // ---------------------------------------------------------------- helpers
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function momentum(User $student): array
+    {
+        return $this->actingAs($student)
+            ->getJson('/api/learning-insights')
+            ->assertOk()
+            ->json('data.summary.momentum');
+    }
+
+    private function quiz(Course $course): Quiz
+    {
+        return Quiz::factory()->create(['course_id' => $course->id]);
+    }
+
+    private function attempt(User $student, Quiz $quiz, mixed $submittedAt): QuizAttempt
+    {
+        return QuizAttempt::factory()->completed()->create([
+            'quiz_id' => $quiz->id,
+            'student_id' => $student->id,
+            'submitted_at' => $submittedAt,
+        ]);
+    }
+
+    private function assignment(Course $course): Assignment
+    {
+        return Assignment::factory()->create(['course_id' => $course->id]);
+    }
+
+    private function submission(User $student, Assignment $assignment, mixed $gradedAt): AssignmentSubmission
+    {
+        return AssignmentSubmission::factory()->graded()->create([
+            'assignment_id' => $assignment->id,
+            'student_id' => $student->id,
+            'graded_at' => $gradedAt,
+        ]);
     }
 }

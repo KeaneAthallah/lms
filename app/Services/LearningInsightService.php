@@ -13,6 +13,7 @@ use App\Models\Quiz;
 use App\Models\QuizAttempt;
 use App\Models\User;
 use App\SubmissionStatus;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
@@ -552,29 +553,32 @@ class LearningInsightService
      * @param  Collection<int, Enrollment>  $enrollments
      * @return array<string, mixed>
      */
+    /**
+     * The three things that count as a student being active, each with the
+     * timestamp that records it. The momentum block needs a count in a window,
+     * the set of days touched, and the newest moment; it never needs the rows.
+     *
+     * @return array<int, array{0: string, 1: Builder}>
+     */
+    protected function activitySources(User $student): array
+    {
+        return [
+            ['completed_at', LessonProgress::query()->where('student_id', $student->id)],
+            ['submitted_at', QuizAttempt::query()->where('student_id', $student->id)],
+            ['graded_at', AssignmentSubmission::query()->where('student_id', $student->id)],
+        ];
+    }
+
     protected function buildMomentum(User $student, Collection $enrollments): array
     {
-        $now = now();
+        $sevenDaysAgo = now()->subDays(7);
 
-        $completedAt = LessonProgress::where('student_id', $student->id)
-            ->whereNotNull('completed_at')
-            ->pluck('completed_at');
+        $lessonsCompleted7d = $this->countActivitySince(LessonProgress::query()->where('student_id', $student->id), 'completed_at', $sevenDaysAgo);
+        $attemptsTaken7d = $this->countActivitySince(QuizAttempt::query()->where('student_id', $student->id), 'submitted_at', $sevenDaysAgo);
+        $submissions7d = $this->countActivitySince(AssignmentSubmission::query()->where('student_id', $student->id), 'graded_at', $sevenDaysAgo);
 
-        $attemptsAt = QuizAttempt::where('student_id', $student->id)
-            ->whereNotNull('submitted_at')
-            ->pluck('submitted_at');
-
-        $gradedAt = AssignmentSubmission::where('student_id', $student->id)
-            ->whereNotNull('graded_at')
-            ->pluck('graded_at');
-
-        $sevenDaysAgo = $now->copy()->subDays(7);
-
-        $lessonsCompleted7d = $completedAt->filter(fn (?Carbon $date) => $date !== null && $date->gte($sevenDaysAgo))->count();
-        $attemptsTaken7d = $attemptsAt->filter(fn (?Carbon $date) => $date !== null && $date->gte($sevenDaysAgo))->count();
-        $submissions7d = $gradedAt->filter(fn (?Carbon $date) => $date !== null && $date->gte($sevenDaysAgo))->count();
-
-        $streakDays = $this->activeDaysStreak($completedAt->merge($attemptsAt)->merge($gradedAt));
+        $timeline = $this->activityTimeline($student);
+        $streakDays = $this->activeDaysStreak($timeline->pluck('activity_date'));
 
         $activity = $lessonsCompleted7d + $attemptsTaken7d + $submissions7d;
 
@@ -590,17 +594,73 @@ class LearningInsightService
             $label = 'Light week';
         }
 
-        $lastCandidates = collect([...$enrollments->pluck('last_accessed_at'), ...$completedAt, ...$attemptsAt, ...$gradedAt])
-            ->filter();
-
         return [
             'label' => $label,
             'lessons_completed_7d' => $lessonsCompleted7d,
             'quiz_attempts_7d' => $attemptsTaken7d,
             'submissions_7d' => $submissions7d,
             'streak_days' => $streakDays,
-            'last_activity_at' => $lastCandidates->max()?->toIso8601String(),
+            'last_activity_at' => $this->lastActivityAt($timeline, $enrollments),
         ];
+    }
+
+    /**
+     * How many of a student's records were timestamped inside the window, counted
+     * by the database rather than by pulling every timestamp they have ever
+     * produced and filtering it in PHP.
+     */
+    protected function countActivitySince(Builder $query, string $column, Carbon $since): int
+    {
+        return $query
+            ->whereNotNull($column)
+            ->where($column, '>=', $since)
+            ->count();
+    }
+
+    /**
+     * The student's activity timeline: one row per calendar day they were active,
+     * carrying the latest moment recorded on that day. A streak is the run of
+     * consecutive days in this list and the last activity is the newest moment in
+     * it, so both answers come out of a single grouped pass per table — and a
+     * student who did four things on Tuesday contributes one row, not four,
+     * however long they have been on the platform.
+     *
+     * @return Collection<int, object{activity_date: string, latest_at: string}>
+     */
+    protected function activityTimeline(User $student): Collection
+    {
+        $timeline = collect();
+
+        foreach ($this->activitySources($student) as [$column, $query]) {
+            $timeline = $timeline->merge(
+                $query
+                    ->whereNotNull($column)
+                    ->selectRaw("DATE({$column}) as activity_date")
+                    ->selectRaw("MAX({$column}) as latest_at")
+                    ->groupByRaw("DATE({$column})")
+                    ->get()
+            );
+        }
+
+        return $timeline;
+    }
+
+    /**
+     * The newest moment of anything the student did, counting any course they
+     * touched: opening a course is activity on it even with nothing recorded
+     * against a lesson.
+     *
+     * @param  Collection<int, object{activity_date: string, latest_at: string}>  $timeline
+     */
+    protected function lastActivityAt(Collection $timeline, Collection $enrollments): ?string
+    {
+        $latest = $timeline
+            ->pluck('latest_at')
+            ->concat($enrollments->pluck('last_accessed_at')->filter())
+            ->map(fn (Carbon|string $value): Carbon => $value instanceof Carbon ? $value : Carbon::parse($value))
+            ->max();
+
+        return $latest?->toIso8601String();
     }
 
     /**
