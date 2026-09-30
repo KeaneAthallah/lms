@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../../api';
-import { Button, Card, cx, EmptyState, PageHeader, PageLoader, useToast } from '../../components/ui';
+import { Button, Card, cx, Dropdown, DropdownItem, EmptyState, PageHeader, PageLoader, useToast } from '../../components/ui';
 import GradeAdjustmentHistoryModal from './GradeAdjustmentHistoryModal';
 import GradeAdjustmentModal from './GradeAdjustmentModal';
 import GradebookCategoriesModal from './GradebookCategoriesModal';
@@ -129,6 +129,35 @@ export default function InstructorGradebook() {
                         <Button variant="secondary" icon="settings" onClick={() => setSettingsOpen(true)}>
                             Edit categories
                         </Button>
+                        <Dropdown
+                            label="Export the gradebook"
+                            trigger={
+                                <Button variant="secondary" icon="download" aria-haspopup="menu">
+                                    Export
+                                </Button>
+                            }
+                        >
+                            {/* Links, not fetches: the server names the file, and
+                                save-as keeps working. */}
+                            <DropdownItem href={`/api/instructor/courses/${slug}/gradebook/export?format=csv`} icon="file">
+                                Gradebook (CSV)
+                            </DropdownItem>
+                            <DropdownItem href={`/api/instructor/courses/${slug}/gradebook/export?format=xlsx`} icon="grid">
+                                Gradebook (Excel)
+                            </DropdownItem>
+                            <DropdownItem
+                                href={`/api/instructor/courses/${slug}/gradebook/adjustments/export?format=csv`}
+                                icon="clock"
+                            >
+                                Adjustment history (CSV)
+                            </DropdownItem>
+                            <DropdownItem
+                                href={`/api/instructor/courses/${slug}/gradebook/adjustments/export?format=xlsx`}
+                                icon="clock"
+                            >
+                                Adjustment history (Excel)
+                            </DropdownItem>
+                        </Dropdown>
                     </div>
                 }
             />

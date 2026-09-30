@@ -433,6 +433,9 @@ class GradebookService
      * per row: a trail is read as a list of "who changed what, and when", and
      * loading it must not cost a query per entry.
      *
+     * The page shows the most recent decisions, so it caps the list; an export is
+     * the whole record and asks for it all.
+     *
      * @return array<int, array{
      *     id: int,
      *     action: string,
@@ -449,14 +452,16 @@ class GradebookService
      *     assessment: array{key: string, title: string, type: string},
      * }>
      */
-    public function recentAdjustments(Course $course, int $limit = 50): array
+    public function recentAdjustments(Course $course, ?int $limit = 50): array
     {
-        $adjustments = GradeAdjustment::where('course_id', $course->id)
+        $query = GradeAdjustment::where('course_id', $course->id)
             ->with(['adjuster:id,name', 'student:id,name,email', 'grade.source'])
             ->orderByDesc('adjusted_at')
-            ->orderByDesc('id')
-            ->limit($limit)
-            ->get();
+            ->orderByDesc('id');
+
+        $adjustments = $limit === null
+            ? $query->get()
+            : $query->limit($limit)->get();
 
         $titles = $this->assessmentTitles($adjustments->pluck('grade'));
         $previous = $this->previousStates($adjustments);

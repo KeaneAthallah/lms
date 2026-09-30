@@ -26,6 +26,7 @@ use App\Http\Controllers\InstructorCourseController;
 use App\Http\Controllers\InstructorDashboardController;
 use App\Http\Controllers\InstructorGradebookCategoryController;
 use App\Http\Controllers\InstructorGradebookController;
+use App\Http\Controllers\InstructorGradebookExportController;
 use App\Http\Controllers\InstructorLessonController;
 use App\Http\Controllers\InstructorMaterialController;
 use App\Http\Controllers\InstructorQuizController;
@@ -187,6 +188,8 @@ Route::prefix('api')->middleware(['auth', 'role:instructor'])->group(function ()
     Route::get('/instructor/courses/{course:slug}/analytics', [InstructorAnalyticsController::class, 'show']);
     Route::get('/instructor/courses/{course:slug}/radar', [InstructorRadarController::class, 'show']);
     Route::get('/instructor/courses/{course:slug}/gradebook', [InstructorGradebookController::class, 'show']);
+    Route::get('/instructor/courses/{course:slug}/gradebook/export', [InstructorGradebookExportController::class, 'grid']);
+    Route::get('/instructor/courses/{course:slug}/gradebook/adjustments/export', [InstructorGradebookExportController::class, 'adjustments']);
     Route::get('/instructor/courses/{course:slug}/gradebook/adjustments', [InstructorGradebookController::class, 'adjustmentLog']);
     Route::put('/instructor/courses/{course:slug}/gradebook/grades/{grade}', [InstructorGradebookController::class, 'adjust']);
     Route::get('/instructor/courses/{course:slug}/gradebook-categories', [InstructorGradebookCategoryController::class, 'index']);
