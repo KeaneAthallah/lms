@@ -3,13 +3,16 @@
 namespace App\Notifications;
 
 use App\Models\Certificate;
+use App\Notifications\Concerns\RetriesTransientMailFailures;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
-class CertificateIssued extends Notification
+class CertificateIssued extends Notification implements ShouldQueue
 {
     use Queueable;
+    use RetriesTransientMailFailures;
 
     public function __construct(public Certificate $certificate) {}
 

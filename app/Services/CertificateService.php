@@ -80,8 +80,14 @@ class CertificateService
                 }
 
                 $student = $enrollment->student;
-                $student->notify(new CourseCompleted($enrollment->course));
-                $student->notify(new CertificateIssued($certificate));
+
+                // Queued, so both of these can be picked up by a worker before
+                // this transaction commits -- and both read the certificate row
+                // this transaction is still writing. `afterCommit()` holds them
+                // until the commit, or discards them if it rolls back, so the
+                // mail can never describe a certificate nobody can see yet.
+                $student->notify((new CourseCompleted($enrollment->course))->afterCommit());
+                $student->notify((new CertificateIssued($certificate))->afterCommit());
 
                 return $certificate;
             }

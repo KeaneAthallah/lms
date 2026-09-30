@@ -3,13 +3,16 @@
 namespace App\Notifications;
 
 use App\Models\AssignmentSubmission;
+use App\Notifications\Concerns\RetriesTransientMailFailures;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
-class NewAssignmentSubmission extends Notification
+class NewAssignmentSubmission extends Notification implements ShouldQueue
 {
     use Queueable;
+    use RetriesTransientMailFailures;
 
     public function __construct(public AssignmentSubmission $submission) {}
 

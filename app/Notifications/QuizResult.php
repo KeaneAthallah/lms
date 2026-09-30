@@ -3,13 +3,16 @@
 namespace App\Notifications;
 
 use App\Models\QuizAttempt;
+use App\Notifications\Concerns\RetriesTransientMailFailures;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
-class QuizResult extends Notification
+class QuizResult extends Notification implements ShouldQueue
 {
     use Queueable;
+    use RetriesTransientMailFailures;
 
     public function __construct(public QuizAttempt $attempt) {}
 

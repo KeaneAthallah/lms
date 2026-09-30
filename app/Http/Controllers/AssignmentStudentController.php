@@ -94,7 +94,7 @@ class AssignmentStudentController extends Controller
             ]);
         }
 
-        $assignment->course->instructor->notify(new NewAssignmentSubmission($submission->load('assignment')));
+        $assignment->course->instructor->notify((new NewAssignmentSubmission($submission->load('assignment')))->afterCommit());
 
         return response()->json([
             'message' => 'Your submission has been saved.',

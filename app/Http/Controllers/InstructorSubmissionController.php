@@ -109,7 +109,7 @@ class InstructorSubmissionController extends Controller
             }
         });
 
-        $submission->student->notify(new AssignmentGraded($assignment, (float) $grade, $feedback));
+        $submission->student->notify((new AssignmentGraded($assignment, (float) $grade, $feedback))->afterCommit());
 
         return response()->json([
             'message' => 'Submission graded.',

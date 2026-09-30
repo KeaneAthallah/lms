@@ -49,8 +49,8 @@ class EnrollmentService
             ]);
         }
 
-        $student->notify(new EnrollmentConfirmed($course));
-        $course->instructor->notify(new NewEnrollment($enrollment));
+        $student->notify((new EnrollmentConfirmed($course))->afterCommit());
+        $course->instructor->notify((new NewEnrollment($enrollment))->afterCommit());
 
         return $enrollment;
     }

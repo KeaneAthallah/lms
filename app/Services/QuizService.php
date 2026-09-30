@@ -596,7 +596,11 @@ class QuizService
         );
 
         $student = $attempt->student;
-        $student->notify(new QuizResult($attempt));
+
+        // Both callers of `gradeAttempt()` run inside a transaction, so this mail
+        // can otherwise be picked up while the score it reports is still
+        // uncommitted -- or be sent at all for an attempt that then rolled back.
+        $student->notify((new QuizResult($attempt))->afterCommit());
 
         if ($passed) {
             $lesson = Lesson::where('quiz_id', $quiz->id)->first();
