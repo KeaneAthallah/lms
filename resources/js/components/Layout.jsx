@@ -424,7 +424,6 @@ function GuestNav() {
     const [open, setOpen] = useState(false);
     const location = useLocation();
     const drawerCloseRef = useRef(null);
-    const name = window.__LMS_CONFIG__?.institutionName ?? 'LMS';
 
     useEffect(() => setOpen(false), [location.pathname, location.hash]);
 
@@ -448,26 +447,6 @@ function GuestNav() {
 
     return (
         <div>
-            <div className="border-b border-brand-800 bg-brand-900">
-                <div className="mx-auto flex h-9 max-w-7xl items-center justify-between gap-3 px-4 sm:px-6">
-                    <p className="flex items-center gap-1.5 truncate text-xs font-medium tracking-wide text-brand-100">
-                        <Icon name="building" className="h-3.5 w-3.5 shrink-0 text-brand-300" />
-                        <span className="truncate">{name} · Platform Pembelajaran Digital</span>
-                    </p>
-                    <nav className="flex shrink-0 items-center gap-4 text-xs font-medium text-brand-100" aria-label="Layanan">
-                        <Link to="/verify-certificate" className="flex items-center gap-1.5 transition hover:text-gray-100">
-                            <Icon name="badgeCheck" className="h-3.5 w-3.5" />
-                            Verifikasi Sertifikat
-                        </Link>
-                        <span className="h-3 w-px bg-brand-700" aria-hidden="true" />
-                        <Link to="/login" className="flex items-center gap-1.5 transition hover:text-gray-100">
-                            <Icon name="user" className="h-3.5 w-3.5" />
-                            Masuk
-                        </Link>
-                    </nav>
-                </div>
-            </div>
-
             <header className="sticky top-0 z-40 border-b border-slate-200 bg-white">
                 <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
                     <Brand subtitle="Platform Pembelajaran Digital" />
