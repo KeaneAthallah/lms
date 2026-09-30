@@ -6,8 +6,6 @@ use App\EnrollmentStatus;
 use App\Models\Certificate;
 use App\Models\Enrollment;
 use App\Models\Grade;
-use App\Models\LessonProgress;
-use App\Models\QuizAttempt;
 use App\Models\User;
 
 /**
@@ -116,30 +114,6 @@ class PortfolioService
 
     protected function totalLearningMinutes(User $student): int
     {
-        $completed = LessonProgress::query()
-            ->where('student_id', $student->id)
-            ->whereNotNull('completed_at')
-            ->with('lesson:id,duration_seconds')
-            ->get(['lesson_id', 'completed_at']);
-
-        $lessonMinutes = $completed->sum(
-            fn (LessonProgress $row) => is_numeric($row->lesson?->duration_seconds) && (int) $row->lesson->duration_seconds > 0
-                ? (int) ceil((int) $row->lesson->duration_seconds / 60)
-                : 0
-        );
-
-        $attempts = QuizAttempt::query()
-            ->where('student_id', $student->id)
-            ->whereNotNull('submitted_at')
-            ->whereNotNull('started_at')
-            ->get(['started_at', 'submitted_at']);
-
-        $attemptMinutes = $attempts->sum(function (QuizAttempt $attempt): int {
-            $seconds = max(0, (int) $attempt->started_at->diffInSeconds($attempt->submitted_at));
-
-            return min(120, (int) ceil($seconds / 60));
-        });
-
-        return $lessonMinutes + $attemptMinutes;
+        return (new LearningMinutesCalculator)->minutes($student);
     }
 }

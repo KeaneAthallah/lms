@@ -508,36 +508,12 @@ class LearningInsightService
     /**
      * Real learning minutes over the last 7 days, derived from completed lesson
      * durations and elapsed quiz attempt time. No fabricated statistics.
+     *
+     * The arithmetic is `LearningMinutesCalculator`'s; only the window is ours.
      */
     public function learningMinutes7d(User $student): int
     {
-        $since = now()->subDays(7);
-
-        $completed = LessonProgress::where('student_id', $student->id)
-            ->whereNotNull('completed_at')
-            ->where('completed_at', '>=', $since)
-            ->with('lesson:id,duration_seconds')
-            ->get(['lesson_id', 'completed_at']);
-
-        $lessonMinutes = $completed->sum(
-            fn (LessonProgress $row) => is_numeric($row->lesson?->duration_seconds) && (int) $row->lesson->duration_seconds > 0
-                ? (int) ceil((int) $row->lesson->duration_seconds / 60)
-                : 0
-        );
-
-        $attempts = QuizAttempt::where('student_id', $student->id)
-            ->whereNotNull('submitted_at')
-            ->whereNotNull('started_at')
-            ->where('submitted_at', '>=', $since)
-            ->get(['started_at', 'submitted_at']);
-
-        $attemptMinutes = $attempts->sum(function (QuizAttempt $attempt): int {
-            $seconds = max(0, (int) $attempt->started_at->diffInSeconds($attempt->submitted_at));
-
-            return min(120, (int) ceil($seconds / 60));
-        });
-
-        return $lessonMinutes + $attemptMinutes;
+        return (new LearningMinutesCalculator)->minutes($student, now()->subDays(7));
     }
 
     protected function masteryStatusFor(int $percent): string
