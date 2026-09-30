@@ -10,10 +10,13 @@ import FooterSection from './FooterSection';
 function Brand({ className, subtitle }) {
     return (
         <Link to="/" className={cx('group flex items-center gap-2.5', className)}>
-            <span className="relative flex h-10 w-10 items-center justify-center rounded-md border border-brand-200 bg-white text-brand-700 shadow-sm transition group-hover:border-brand-300">
-                <Icon name="book" className="h-5 w-5" strokeWidth={2} />
-                <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-white bg-brand-600" aria-hidden="true" />
-            </span>
+            <img
+                src="/logo-donggala.png"
+                alt=""
+                width={40}
+                height={48}
+                className="h-10 w-auto shrink-0 object-contain"
+            />
             <span className="flex min-w-0 flex-col leading-tight">
                 <span className="truncate text-base font-bold tracking-tight text-slate-900">
                     {window.__LMS_CONFIG__?.institutionName ?? 'LMS'}

@@ -12,6 +12,8 @@ class AdminUserController extends Controller
 {
     public function index(Request $request)
     {
+        $this->authorize('viewAny', User::class);
+
         $query = User::with('roles');
 
         if ($search = $request->string('search')->trim()->toString()) {
@@ -33,6 +35,8 @@ class AdminUserController extends Controller
 
     public function store(StoreUserRequest $request)
     {
+        $this->authorize('viewAny', User::class);
+
         $user = User::create($request->safe()->only(['name', 'email', 'password']));
         $user->assignRole($request->input('role'));
 
@@ -44,6 +48,8 @@ class AdminUserController extends Controller
 
     public function update(UpdateUserRequest $request, User $user)
     {
+        $this->authorize('update', $user);
+
         $data = $request->safe()->only(['name', 'email', 'headline', 'bio']);
         $data['is_active'] = (bool) $request->boolean('is_active', $user->is_active);
 
@@ -63,6 +69,8 @@ class AdminUserController extends Controller
 
     public function destroy(Request $request, User $user)
     {
+        $this->authorize('delete', $user);
+
         abort_if($user->id === $request->user()->id, 422, 'You cannot delete your own account.');
 
         $user->delete();

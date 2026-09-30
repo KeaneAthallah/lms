@@ -22,7 +22,9 @@ class CertificateController extends Controller
     {
         $this->authorize('view', $certificate);
 
-        $certificate->load(['course.instructor:id,name', 'student:id,name', 'enrollment']);
+        // No `enrollment` relation: the resource exposes course, student and
+        // instructor only, so eager-loading it just paid for a join nobody read.
+        $certificate->load(['course.instructor:id,name', 'student:id,name']);
 
         return new CertificateResource($certificate);
     }

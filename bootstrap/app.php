@@ -14,6 +14,12 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // TLS is terminated by a proxy on this host (cloudflared in tunnel.ps1, or a
+        // local nginx/PHP-FPM in production), so the original scheme arrives in
+        // X-Forwarded-Proto. Without this, asset() builds http:// URLs on an https page
+        // and the browser discards the stylesheet as mixed content.
+        $middleware->trustProxies(at: '127.0.0.1,::1');
+
         $middleware->alias([
             'role' => EnsureUserHasRole::class,
         ]);

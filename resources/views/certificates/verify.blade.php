@@ -39,12 +39,23 @@
             margin: 16px 0;
         }
         .result.valid { background: #f0fdf4; border: 1px solid #bbf7d0; }
-        .result.invalid { background: #fef2f2; border: 1px solid #fecaca; }
         .result .state { font-size: 36px; }
         .result h2 { margin: 8px 0 4px; font-size: 18px; }
         .result.valid h2 { color: #15803d; }
-        .result.invalid h2 { color: #b91c1c; }
         .result p { margin: 0; font-size: 14px; color: #475569; }
+        .emblem { display: block; width: 64px; height: auto; margin: 0 auto 12px; }
+        .document-link {
+            display: inline-block;
+            margin-top: 22px;
+            padding: 10px 20px;
+            border-radius: 9999px;
+            background: #92400e;
+            color: #fff;
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+        }
+        .document-link:hover { background: #78350f; }
         dl {
             text-align: left;
             margin: 24px 0 8px;
@@ -61,35 +72,30 @@
 </head>
 <body>
     <main class="card">
+        <img class="emblem" src="/logo-donggala.png" alt="">
         <p class="badge">{{ $institution }}</p>
         <h1>Certificate Verification</h1>
         <p class="subtitle">Verification for certificate {{ $identifier }}</p>
 
-        @if ($verified)
-            <div class="result valid">
-                <div class="state">{{ '✓' }}</div>
-                <h2>This certificate is authentic</h2>
-                <p>Issued by {{ $institution }} and verified against our records.</p>
-            </div>
-            <dl>
-                <dt>Certificate Number</dt>
-                <dd>{{ $certificate->certificate_number }}</dd>
-                <dt>Recipient</dt>
-                <dd>{{ $certificate->student->name ?? '—' }}</dd>
-                <dt>Course</dt>
-                <dd>{{ $certificate->course->title ?? '—' }}</dd>
-                <dt>Awarded By</dt>
-                <dd>{{ $certificate->instructor->name ?? '—' }}</dd>
-                <dt>Issued On</dt>
-                <dd>{{ $certificate->issued_at?->format('F j, Y') }}</dd>
-            </dl>
-        @else
-            <div class="result invalid">
-                <div class="state">{{ '✕' }}</div>
-                <h2>Certificate not found</h2>
-                <p>No valid certificate matches this identifier. It may have been revoked or the link is incorrect.</p>
-            </div>
-        @endif
+        <div class="result valid">
+            <div class="state">&#10003;</div>
+            <h2>This certificate is authentic</h2>
+            <p>Issued by {{ $institution }} and verified against our records.</p>
+        </div>
+        <dl>
+            <dt>Certificate Number</dt>
+            <dd>{{ $certificate->certificate_number }}</dd>
+            <dt>Recipient</dt>
+            <dd>{{ $certificate->student->name ?? '—' }}</dd>
+            <dt>Course</dt>
+            <dd>{{ $certificate->course->title ?? '—' }}</dd>
+            <dt>Awarded By</dt>
+            <dd>{{ $certificate->instructor->name ?? '—' }}</dd>
+            <dt>Issued On</dt>
+            <dd>{{ $certificate->issued_at?->format('F j, Y') }}</dd>
+        </dl>
+
+        <a class="document-link" href="{{ route('certificates.show', $certificate->identifier) }}">View the certificate</a>
 
         <p class="footer">This page was generated automatically. Tampering with a certificate is a violation of our academic integrity policy.</p>
     </main>

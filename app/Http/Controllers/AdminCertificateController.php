@@ -9,6 +9,11 @@ class AdminCertificateController extends Controller
 {
     public function index(Request $request)
     {
+        // The route's `role:admin` middleware already narrows this to admins, but
+        // `certificates.manage` is published in the roles matrix and nothing else
+        // consulted it, so the catalog advertised a capability no code enforced.
+        $this->authorize('manage', Certificate::class);
+
         $query = Certificate::with(['course:id,title,slug', 'student:id,name,email'])
             ->latest('issued_at');
 
@@ -28,6 +33,7 @@ class AdminCertificateController extends Controller
                 'certificate_number' => $c->certificate_number,
                 'identifier' => $c->identifier,
                 'issued_at' => $c->issued_at?->toISOString(),
+                'certificate_url' => route('certificates.show', $c->identifier),
                 'course' => ['id' => $c->course->id, 'title' => $c->course->title, 'slug' => $c->course->slug],
                 'student' => ['id' => $c->student->id, 'name' => $c->student->name, 'email' => $c->student->email],
             ]),

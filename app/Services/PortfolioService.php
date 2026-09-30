@@ -81,6 +81,9 @@ class PortfolioService
             ],
             'certificates' => $certificates->map(fn (Certificate $certificate) => [
                 'identifier' => $certificate->identifier,
+                // The document is server-rendered and public, so the URL belongs
+                // here rather than being assembled in the browser.
+                'certificate_url' => route('certificates.show', $certificate->identifier),
                 'issued_at' => $certificate->issued_at?->toIso8601String(),
                 'course' => [
                     'id' => $certificate->course?->id,

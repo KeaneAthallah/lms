@@ -13,6 +13,8 @@ class AdminCategoryController extends Controller
 {
     public function index(Request $request)
     {
+        $this->authorize('viewAny', CourseCategory::class);
+
         // Only the count is rendered, so the listing counts rather than loading
         // every course just to discard it.
         $query = CourseCategory::withCount(['courses']);
@@ -44,6 +46,8 @@ class AdminCategoryController extends Controller
 
     public function store(StoreCategoryRequest $request)
     {
+        $this->authorize('manage', CourseCategory::class);
+
         $category = CourseCategory::create([
             ...$request->safe()->only(['name', 'description', 'icon']),
             'slug' => $request->filled('slug')
@@ -60,6 +64,8 @@ class AdminCategoryController extends Controller
 
     public function update(UpdateCategoryRequest $request, CourseCategory $category)
     {
+        $this->authorize('manage', CourseCategory::class);
+
         $category->update([
             ...$request->safe()->only(['name', 'description', 'icon']),
             'slug' => $request->filled('slug') ? Str::slug($request->input('slug')) : Str::slug($request->input('name', $category->name)),
@@ -74,6 +80,8 @@ class AdminCategoryController extends Controller
 
     public function destroy(Request $request, CourseCategory $category)
     {
+        $this->authorize('manage', CourseCategory::class);
+
         if ($category->courses()->exists()) {
             return response()->json(['message' => 'Category has courses and cannot be deleted.'], 409);
         }

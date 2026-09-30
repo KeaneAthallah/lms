@@ -324,6 +324,15 @@ class QuizBlueprintTest extends TestCase
 
     public function test_a_quiz_without_a_blueprint_still_draws_a_uniform_sample(): void
     {
+        // Seeded, because the property being asserted is a property of a *random*
+        // draw. Drawing 6 from a 10/10 bank lands on a single type about 1.1% of
+        // the time, and the test checks two draws, so it failed roughly one run in
+        // 46 for reasons that had nothing to do with the code -- which is how a
+        // suite learns to be re-run until green. `loadPackedQuestions()` shuffles
+        // with Mt19937, so seeding makes the sample reproducible and turns the
+        // assertion back into a real check on the sampler.
+        mt_srand(20260930);
+
         $this->enrollStudent();
         $bank = $this->makeBank(['multiple_choice' => 10, 'numeric' => 10]);
 

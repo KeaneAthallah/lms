@@ -96,7 +96,7 @@ export default function AdminCertificates() {
                                 variant="ghost"
                                 size="sm"
                                 icon="eye"
-                                onClick={() => window.open(`/certificates/${cert.identifier}`, '_blank')}
+                                onClick={() => window.open(cert.certificate_url, '_blank')}
                             >
                                 View
                             </Button>

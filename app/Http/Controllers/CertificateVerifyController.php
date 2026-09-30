@@ -8,27 +8,26 @@ use Illuminate\Http\Request;
 
 class CertificateVerifyController extends Controller
 {
-    public function verify(Request $request, string $identifier)
+    public function verify(Request $request, string $reference)
     {
-        $certificate = Certificate::with('course.instructor', 'student')
-            ->where('identifier', $identifier)
-            ->first();
+        // One lookup on a public, unauthenticated route. A miss is a 404 rather
+        // than a rendered failure state, so the view only ever has one outcome.
+        $certificate = (new CertificateService)->verify($reference);
 
         if (! $certificate) {
             abort(404, 'Certificate not found.');
         }
 
-        $isValid = (new CertificateService)->verify($identifier);
-
         return view('certificates.verify', [
-            'verified' => $isValid,
             'certificate' => $certificate,
-            'identifier' => $identifier,
+            'identifier' => $certificate->identifier,
         ]);
     }
 
     public function show(Request $request, string $identifier)
     {
+        // Addressed by identifier only. The document is the artifact of record, so
+        // it keeps the one key that is never reused or reissued.
         $certificate = Certificate::with(['course.instructor', 'student'])
             ->where('identifier', $identifier)
             ->firstOrFail();

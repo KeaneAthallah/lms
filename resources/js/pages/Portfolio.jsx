@@ -23,16 +23,15 @@ function CertificatesSection({ certificates }) {
                         </div>
                         <div className="min-w-0 flex-1">
                             <h3 className="font-semibold text-slate-900">
-                                <Link to={`/certificates/${certificate.identifier}`} className="hover:underline">
+                                <a href={certificate.certificate_url} className="hover:underline">
                                     {certificate.course?.title}
-                                </Link>
+                                </a>
                             </h3>
                             <p className="text-xs font-medium text-slate-500">
                                 Issued {certificate.issued_at ? formatDate(certificate.issued_at) : '—'}
                                 {certificate.instructor ? ` · ${certificate.instructor}` : ''}
                             </p>
                         </div>
-                        <Badge color="green" dot>Verified</Badge>
                     </li>
                 ))}
             </ul>

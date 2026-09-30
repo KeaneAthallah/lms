@@ -112,10 +112,6 @@ createRoot(document.getElementById('app')).render(
                         element={<ProtectedRoute>{inLayout(<Certificates />)}</ProtectedRoute>}
                     />
                     <Route
-                        path="/certificates/:id"
-                        element={<ProtectedRoute>{inLayout(<Certificates />)}</ProtectedRoute>}
-                    />
-                    <Route
                         path="/notifications"
                         element={<ProtectedRoute>{inLayout(<Notifications />)}</ProtectedRoute>}
                     />

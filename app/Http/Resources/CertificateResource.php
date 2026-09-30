@@ -14,7 +14,12 @@ class CertificateResource extends JsonResource
             'certificate_number' => $this->certificate_number,
             'identifier' => $this->identifier,
             'issued_at' => $this->issued_at?->toISOString(),
-            'verify_url' => url('/certificates/verify/'.$this->identifier),
+            // The printable document. The client used to assemble this path itself
+            // from the identifier, which is the one thing in the app that knows the
+            // route's shape -- so a renamed route would have broken a certificate
+            // link in the UI and in this payload in different ways.
+            'certificate_url' => route('certificates.show', $this->identifier),
+            'verify_url' => route('certificates.verify', $this->identifier),
             'student' => $this->whenLoaded('student', fn () => [
                 'id' => $this->student->id,
                 'name' => $this->student->name,

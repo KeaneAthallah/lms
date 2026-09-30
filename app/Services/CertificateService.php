@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\EnrollmentStatus;
 use App\Models\Certificate;
-use App\Models\Course;
 use App\Models\Enrollment;
 use App\Models\QuizAttempt;
 use App\Notifications\CertificateIssued;
@@ -105,22 +104,21 @@ class CertificateService
     }
 
     /**
-     * Look up a certificate by its public verification identifier.
+     * Resolve a public reference to a certificate, by verification identifier or by
+     * certificate number.
+     *
+     * Both keys are unique and both are printed on the certificate, so accepting
+     * either is what lets a holder with only the number on a paper copy be told
+     * whether it is genuine. The identifier is the canonical reference -- it is
+     * what the document URL and every notification link carry -- so callers get
+     * back the certificate rather than the key that matched it.
      */
-    public function verify(string $identifier): ?Certificate
+    public function verify(string $reference): ?Certificate
     {
         return Certificate::with(['student', 'course.instructor'])
-            ->where('identifier', $identifier)
+            ->where('identifier', $reference)
+            ->orWhere('certificate_number', $reference)
             ->first();
-    }
-
-    public function isEligibleFor(Course $course, int $studentId): bool
-    {
-        $enrollment = Enrollment::where('student_id', $studentId)
-            ->where('course_id', $course->id)
-            ->first();
-
-        return $enrollment !== null && $enrollment->status === EnrollmentStatus::Completed;
     }
 
     private function nextNumber(): string

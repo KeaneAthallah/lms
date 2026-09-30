@@ -27,7 +27,7 @@ class CertificateIssued extends Notification implements ShouldQueue
             ->subject('Your certificate is ready')
             ->greeting('Hello '.$notifiable->name.'!')
             ->line("Your certificate for \"{$this->certificate->course->title}\" is available.")
-            ->action('View Certificate', url('/certificates/'.$this->certificate->id))
+            ->action('View Certificate', route('certificates.show', $this->certificate->identifier))
             ->line('Certificate number: '.$this->certificate->certificate_number);
     }
 

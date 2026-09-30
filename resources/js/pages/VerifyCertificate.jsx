@@ -34,7 +34,7 @@ export default function VerifyCertificate() {
                         <Input
                             value={identifier}
                             onChange={(e) => setIdentifier(e.target.value)}
-                            placeholder="Contoh: LMS-2026-000123"
+                            placeholder="Contoh: LMS-100001 atau UUID"
                             className="font-mono"
                             autoFocus
                         />

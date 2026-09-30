@@ -34,7 +34,6 @@ export default function Certificates() {
             ) : (
                 <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
                     {certificates.map((cert) => {
-                        const printedUrl = `/certificates/${cert.identifier}`;
                         return (
                             <Card key={cert.id} className="relative overflow-hidden">
                                 <div className="h-24 bg-gradient-to-br from-brand-700 to-brand-900" />
@@ -51,13 +50,13 @@ export default function Certificates() {
                                     </p>
                                     <div className="mt-4 flex items-center gap-2">
                                         <a
-                                            href={printedUrl}
+                                            href={cert.certificate_url}
                                             target="_blank"
                                             rel="noreferrer"
                                             className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-300 transition hover:bg-slate-50"
                                         >
-                                            <Icon name="eye" className="h-4 w-4" />
-                                            View
+                                            <Icon name="doc" className="h-4 w-4" />
+                                            View &amp; Print
                                         </a>
                                         <a
                                             href={cert.verify_url}
@@ -69,9 +68,6 @@ export default function Certificates() {
                                             Verify
                                         </a>
                                     </div>
-                                    <Badge color="green" dot className="absolute right-4 top-3 bg-white/90 backdrop-blur">
-                                        Verified
-                                    </Badge>
                                 </div>
                             </Card>
                         );

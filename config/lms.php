@@ -17,7 +17,7 @@ return [
     |--------------------------------------------------------------------------
     | Display name used on certificates and emails.
     */
-    'institution_name' => env('LMS_INSTITUTION_NAME', 'Lumen Academy'),
+    'institution_name' => env('LMS_INSTITUTION_NAME', 'Donggala Belajar'),
 
     /*
     |--------------------------------------------------------------------------
